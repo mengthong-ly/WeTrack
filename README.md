@@ -1,21 +1,48 @@
-# Next.js template
+# WeTrack
 
-This is a Next.js template with shadcn/ui.
+Development task tracking for the WeShop team — replaces the Google Sheet with tasks, projects,
+deadlines and releases, and (next) a read-only link for the CEO.
 
-## Adding components
+Next.js 16 · shadcn/ui (Base UI, neutral) · Motion · Drizzle + Postgres · Better Auth.
+Design decisions and milestones: [docs/spec.md](docs/spec.md).
 
-To add components to your app, run the following command:
+## Run it locally
+
+Needs Postgres on `localhost:5432` (Postgres.app) and, for invite emails, Mailpit on `1025`/`8025`.
 
 ```bash
-npx shadcn@latest add button
+cp .env.example .env.local        # then set BETTER_AUTH_SECRET: openssl rand -base64 32
+createdb wetrack
+pnpm install
+pnpm db:migrate
+pnpm dev                          # http://localhost:3100
 ```
 
-This will place the ui components in the `components` directory.
+1. Open `/sign-up` — the **first** account becomes the workspace owner. After that sign-up is invite-only.
+2. Name the workspace, then import the old sheet:
 
-## Using components
-
-To use the components in your app, import them as follows:
-
-```tsx
-import { Button } from "@/components/ui/button";
+```bash
+pnpm import:sheet "https://docs.google.com/spreadsheets/d/<id>/edit"
 ```
+
+Rows without a client land in an **Unsorted** project — move them from each task page.
+Invite teammates from **Team**; locally the email shows up in Mailpit (http://localhost:8025).
+
+Press **C** anywhere to add a task.
+
+## Scripts
+
+| | |
+|---|---|
+| `pnpm dev` | dev server on :3100 |
+| `pnpm db:generate` | new migration from `lib/db/schema.ts` |
+| `pnpm db:migrate` | apply migrations |
+| `pnpm import:sheet <url>` | one-off import from the old Google Sheet (safe to re-run) |
+| `pnpm test` | schedule rules (overdue / due soon / release stage) |
+| `pnpm lint` · `pnpm typecheck` | |
+
+## Production (Vercel)
+
+Neon Postgres via the Vercel Marketplace (`DATABASE_URL`), `BETTER_AUTH_URL` = the deployed URL,
+email through Resend's SMTP (`SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_USER=resend`,
+`SMTP_PASS=<api key>`). Run `pnpm db:migrate` against the production database before the first deploy.
