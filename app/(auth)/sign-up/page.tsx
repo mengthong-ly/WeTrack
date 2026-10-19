@@ -10,11 +10,26 @@ import { getOpenInvite } from "@/lib/invites"
 export const metadata: Metadata = { title: "Create account" }
 
 export default async function SignUpPage({ searchParams }: PageProps<"/sign-up">) {
-  const { invite } = await searchParams
+  const { invite, setup } = await searchParams
   const open = await getOpenInvite(typeof invite === "string" ? invite : undefined)
   const [{ users }] = await db.select({ users: count() }).from(user)
 
-  if (users > 0 && !open) {
+  if (users === 0) {
+    // First account = workspace owner. The setup token is checked again on the server.
+    if (typeof setup !== "string") {
+      return (
+        <div className="flex flex-col gap-3 text-center">
+          <h1 className="text-xl font-medium">Setup link needed</h1>
+          <p className="text-sm text-muted-foreground">
+            Open <code className="rounded bg-muted px-1">/sign-up?setup=&lt;SETUP_TOKEN&gt;</code> using the token from
+            the server&apos;s environment to create the owner account.
+          </p>
+        </div>
+      )
+    }
+    return <AuthForm mode="sign-up" setupToken={setup} />
+  }
+  if (!open) {
     return (
       <div className="flex flex-col gap-3 text-center">
         <h1 className="text-xl font-medium">Invite only</h1>

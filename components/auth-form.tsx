@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { authClient } from "@/lib/auth-client"
+import { INVITE_HEADER, SETUP_HEADER } from "@/lib/auth-headers"
 
-type Props = { mode: "sign-in" | "sign-up"; email?: string; inviteId?: string }
+type Props = { mode: "sign-in" | "sign-up"; email?: string; inviteId?: string; setupToken?: string }
 
-export function AuthForm({ mode, email, inviteId }: Props) {
+export function AuthForm({ mode, email, inviteId, setupToken }: Props) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -27,7 +28,15 @@ export function AuthForm({ mode, email, inviteId }: Props) {
     }
     const res =
       mode === "sign-up"
-        ? await authClient.signUp.email(values)
+        ? await authClient.signUp.email({
+            ...values,
+            fetchOptions: {
+              headers: {
+                ...(inviteId && { [INVITE_HEADER]: inviteId }),
+                ...(setupToken && { [SETUP_HEADER]: setupToken }),
+              },
+            },
+          })
         : await authClient.signIn.email(values)
     if (res.error) {
       setPending(false)

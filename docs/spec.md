@@ -41,5 +41,5 @@ Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule heal
 ## Security notes
 
 - Every server action re-checks the session and that the target row belongs to the caller's workspace.
-- Sign-up is blocked unless no users exist yet or the email has a pending invitation (`lib/auth.ts`).
+- Sign-up must prove it came from the right link (`lib/auth.ts`): the first account needs the server's `SETUP_TOKEN`; everyone else needs the invite id from their email, matched to a pending, unexpired invitation for that address.
 - Share-link tokens will be stored hashed (M2).
