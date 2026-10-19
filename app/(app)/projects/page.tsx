@@ -1,3 +1,4 @@
+import { MessageSquareTextIcon } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 
@@ -5,7 +6,7 @@ import { ProjectDot } from "@/components/bits"
 import { CountUp, ProgressBar, Reveal } from "@/components/motion-bits"
 import { NewProject } from "@/components/new-project"
 import { formatDate } from "@/lib/labels"
-import { listProjects, listTasks } from "@/lib/queries"
+import { listProjects, listTasks, unreportedCounts } from "@/lib/queries"
 import { effectiveProgress, health, todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { byDeadline } from "@/lib/task-view"
@@ -15,7 +16,11 @@ export const metadata: Metadata = { title: "Projects" }
 export default async function ProjectsPage() {
   const me = await requireMember()
   const today = todayISO()
-  const [projects, tasks] = await Promise.all([listProjects(me.orgId), listTasks(me.orgId)])
+  const [projects, tasks, unreported] = await Promise.all([
+    listProjects(me.orgId),
+    listTasks(me.orgId),
+    unreportedCounts(me.orgId),
+  ])
 
   return (
     <div className="flex flex-col gap-6">
@@ -32,13 +37,12 @@ export default async function ProjectsPage() {
           const next = open.filter((t) => t.deadline).sort(byDeadline)[0]
           return (
             <Reveal key={p.id} index={i + 1}>
-              <Link
-                href={`/tasks?project=${p.id}`}
-                className="flex h-full min-h-48 flex-col rounded-[2rem] bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-              >
+              <div className="relative flex h-full min-h-48 flex-col rounded-tile bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                 <div className="flex items-center gap-2">
                   <ProjectDot color={p.color} className="size-2.5" />
-                  <span className="text-lg">{p.name}</span>
+                  <Link href={`/tasks?project=${p.id}`} className="text-lg after:absolute after:inset-0 after:rounded-tile">
+                    {p.name}
+                  </Link>
                 </div>
                 <span className="mt-auto pt-6 text-5xl font-light tracking-tight">
                   <CountUp value={progress} suffix="%" />
@@ -50,7 +54,14 @@ export default async function ProjectsPage() {
                   {overdue > 0 && <span className="text-red-600">{overdue} overdue</span>}
                   {next && <span>next due {formatDate(next.deadline)}</span>}
                 </p>
-              </Link>
+                <Link
+                  href={`/projects/${p.id}/updates`}
+                  className="relative z-10 mt-4 inline-flex items-center gap-2 self-start rounded-full bg-muted px-3.5 py-1.5 text-sm transition hover:bg-foreground hover:text-background"
+                >
+                  <MessageSquareTextIcon className="size-4" />
+                  {unreported.get(p.id) ? `${unreported.get(p.id)} to tell the client` : "Client updates"}
+                </Link>
+              </div>
             </Reveal>
           )
         })}

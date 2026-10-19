@@ -1,4 +1,5 @@
 import type { TaskRow } from "@/lib/queries"
+import { plainText } from "@/lib/markdown"
 import { effectiveProgress, health } from "@/lib/schedule"
 import type { TaskCardData } from "@/components/task-card"
 
@@ -7,7 +8,7 @@ export function toCard(t: TaskRow, today: string): TaskCardData {
   return {
     id: t.id,
     title: t.title,
-    description: t.description,
+    description: t.description && plainText(t.description),
     status: t.status,
     priority: t.priority,
     deadline: t.deadline,

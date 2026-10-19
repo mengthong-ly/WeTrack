@@ -19,7 +19,7 @@ export function StatTile({
   index: number
 }) {
   return (
-    <Reveal index={index} className="flex flex-col rounded-[2rem] bg-card/60 p-5 ring-1 ring-foreground/[0.03] backdrop-blur sm:p-6">
+    <Reveal index={index} className="flex flex-col rounded-tile bg-card/60 p-5 ring-1 ring-foreground/[0.03] backdrop-blur sm:p-6">
       <div className="flex items-start justify-between gap-2">
         <span className="grid size-11 place-items-center rounded-full bg-card shadow-sm">
           <Icon className="size-5" />

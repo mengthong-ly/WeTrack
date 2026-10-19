@@ -15,7 +15,7 @@ export default async function InvitePage({ params }: PageProps<"/invite/[id]">) 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-8 p-4">
       <Logo className="text-4xl" />
-      <div className="w-full max-w-sm rounded-[2rem] bg-card p-8 text-center shadow-sm">
+      <div className="w-full max-w-sm rounded-tile bg-card p-8 text-center shadow-sm">
         {!invite ? (
           <>
             <h1 className="text-xl font-medium">This invite has expired</h1>

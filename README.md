@@ -1,7 +1,7 @@
 # WeTrack
 
 Development task tracking for the WeShop team — replaces the Google Sheet with tasks, projects,
-deadlines and releases, and (next) a read-only link for the CEO.
+deadlines and releases, a read-only link for the CEO, and per-client update drafts.
 
 Next.js 16 · shadcn/ui (Base UI, neutral) · Motion · Drizzle + Postgres · Better Auth.
 Design decisions and milestones: [docs/spec.md](docs/spec.md).
@@ -27,6 +27,9 @@ pnpm import:sheet "https://docs.google.com/spreadsheets/d/<id>/edit"
 ```
 
 Rows without a client land in an **Unsorted** project — move them from each task page.
+
+- **CEO link** — Team → CEO link → *Create link*. Copy it straight away (only a hash is stored). *Make a new link* kills the old one; *Turn off* disables it.
+- **Client updates** — Projects → *N to tell the client*: tick what to report, copy the drafted message into Telegram or email, then *Mark as sent*.
 Invite teammates from **Team**; locally the email shows up in Mailpit (http://localhost:8025).
 
 Press **C** anywhere to add a task.

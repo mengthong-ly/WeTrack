@@ -16,7 +16,7 @@ export default async function OnboardingPage() {
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-8 p-4">
       <Logo className="text-4xl" />
-      <div className="w-full max-w-sm rounded-[2rem] bg-card p-8 shadow-sm">
+      <div className="w-full max-w-sm rounded-tile bg-card p-8 shadow-sm">
         <h1 className="text-xl font-medium">Name your workspace</h1>
         <p className="mt-1 text-sm text-muted-foreground">Usually your team or company.</p>
         <WorkspaceForm />

@@ -140,7 +140,9 @@ export const activity = pgTable(
     actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
     kind: text("kind").notNull(),
     data: jsonb("data").$type<Record<string, unknown>>(),
-    reportedInUpdateId: text("reported_in_update_id"),
+    reportedInUpdateId: text("reported_in_update_id").references(() => clientUpdate.id, {
+      onDelete: "set null",
+    }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -148,6 +150,36 @@ export const activity = pgTable(
     index("activity_project_idx").on(t.projectId),
   ]
 )
+
+// A message sent to a client; the activity rows it covered point back here.
+export const clientUpdate = pgTable(
+  "client_update",
+  {
+    id: id(),
+    organizationId: orgId(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    sentById: text("sent_by_id").references(() => user.id, { onDelete: "set null" }),
+    message: text("message").notNull(),
+    itemCount: integer("item_count").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("client_update_project_idx").on(t.projectId, t.createdAt)]
+)
+
+// Read-only dashboard link for people without an account (the CEO). Only the sha256 of the
+// token is stored, so a leaked backup can't be turned into a working link.
+export const shareLink = pgTable("share_link", {
+  id: id(),
+  organizationId: orgId(),
+  label: text("label").notNull().default("CEO"),
+  tokenHash: text("token_hash").notNull().unique(),
+  createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
+  createdAt: createdAt(),
+})
 
 export const projectRelations = relations(project, ({ many }) => ({
   tasks: many(task),

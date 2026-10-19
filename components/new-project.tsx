@@ -19,11 +19,11 @@ export function NewProject() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger className="flex min-h-48 w-full flex-col items-center justify-center gap-2 rounded-[2rem] border-2 border-dashed border-foreground/10 text-muted-foreground transition hover:border-foreground/25 hover:text-foreground">
+      <DialogTrigger className="flex min-h-48 w-full flex-col items-center justify-center gap-2 rounded-tile border-2 border-dashed border-foreground/10 text-muted-foreground transition hover:border-foreground/25 hover:text-foreground">
         <PlusIcon className="size-6" />
         New project
       </DialogTrigger>
-      <DialogContent className="rounded-[2rem] p-6 sm:max-w-sm">
+      <DialogContent className="rounded-tile p-6 sm:max-w-sm">
         <DialogTitle className="text-xl font-normal">New project</DialogTitle>
         <form
           className="mt-2 flex flex-col gap-4"

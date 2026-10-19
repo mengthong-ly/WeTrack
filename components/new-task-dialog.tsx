@@ -1,5 +1,16 @@
 "use client"
 
+import {
+  ArrowUpIcon,
+  CalendarIcon,
+  CircleDashedIcon,
+  FlagIcon,
+  FolderIcon,
+  type LucideIcon,
+  TagIcon,
+  UserIcon,
+  XIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
@@ -7,12 +18,12 @@ import { toast } from "sonner"
 
 import { createTask } from "@/app/actions"
 import { ProjectDot } from "@/components/bits"
+import { DateRangePicker } from "@/components/date-range-picker"
 import { Pick } from "@/components/pick"
+import { RichText } from "@/components/rich-text"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import type { TaskPriority, TaskStatus, TaskType } from "@/lib/db/enums"
 import {
   type MemberLite,
@@ -24,6 +35,19 @@ import {
 } from "@/lib/options"
 
 const LAST_PROJECT = "wetrack:last-project"
+const propPick = "ml-0 min-w-0 flex-1 justify-between px-2.5 hover:bg-card dark:bg-transparent dark:hover:bg-card"
+const kbd = "grid h-5 min-w-5 place-items-center rounded-md bg-muted px-1 font-sans text-[11px] text-foreground"
+
+// One labelled property row in the create dialog's properties panel.
+function Prop({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex h-11 items-center gap-2 pl-2.5">
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="w-16 shrink-0 text-sm text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  )
+}
 
 export function NewTaskDialog({
   open,
@@ -82,7 +106,7 @@ export function NewTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 rounded-[2rem] p-0 sm:max-w-xl">
+      <DialogContent showCloseButton={false} className="gap-0 rounded-tile p-0 sm:max-w-xl">
         <DialogTitle className="sr-only">New task</DialogTitle>
         {projects.length === 0 ? (
           <div className="p-8 text-center">
@@ -93,68 +117,96 @@ export function NewTaskDialog({
             </Button>
           </div>
         ) : (
-          <form action={submit}>
-            <div className="flex flex-col gap-1 p-6 pb-4">
+          <form
+            action={submit}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") e.currentTarget.requestSubmit()
+            }}
+          >
+            <div className="flex items-center justify-between px-6 pt-5">
+              <span className="text-xs text-muted-foreground">New task</span>
+              <DialogClose
+                aria-label="Close"
+                className="-mr-2 grid size-8 place-items-center rounded-full text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <XIcon className="size-4" />
+              </DialogClose>
+            </div>
+            <div className="flex flex-col gap-1 px-6 pt-2 pb-4">
               <Input
                 name="title"
                 required
                 autoFocus
                 placeholder="What needs doing?"
                 aria-label="Task title"
-                className="h-auto border-0 bg-transparent px-0 text-2xl shadow-none focus-visible:ring-0 md:text-2xl dark:bg-transparent"
+                className="h-auto border-0 bg-transparent px-0 text-3xl font-light tracking-tight shadow-none focus-visible:ring-0 md:text-3xl dark:bg-transparent"
               />
-              <Textarea
+              <RichText
                 name="description"
                 placeholder="Add a description…"
                 aria-label="Description"
-                className="min-h-16 resize-none border-0 bg-transparent px-0 text-muted-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
+                className="flex-col-reverse"
+                contentClassName="min-h-14 max-h-60 overflow-y-auto text-sm text-muted-foreground"
               />
             </div>
-            <div className="flex flex-wrap gap-2 px-6">
-              <Pick
-                aria-label="Project"
-                value={projectId}
-                onChange={setProjectId}
-                options={projects.map((p) => ({
-                  value: p.id,
-                  label: (
-                    <span className="flex items-center gap-2">
-                      <ProjectDot color={p.color} />
-                      {p.name}
-                    </span>
-                  ),
-                }))}
-              />
-              <Pick aria-label="Priority" value={priority} onChange={(v) => setPriority(v as TaskPriority)} options={priorityOptions} />
-              <Pick aria-label="Status" value={status} onChange={(v) => setStatus(v as TaskStatus)} options={statusOptions} />
-              <Pick aria-label="Type" value={type} onChange={(v) => setType(v as TaskType)} options={typeOptions} />
-              <Pick
-                aria-label="Assignee"
-                value={assigneeId}
-                onChange={setAssigneeId}
-                options={[
-                  { value: UNASSIGNED, label: "Unassigned" },
-                  ...members.map((m) => ({ value: m.id, label: m.id === meId ? `${m.name} (me)` : m.name })),
-                ]}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3 px-6 pt-4">
-              <div className="grid gap-1.5">
-                <Label htmlFor="startDate" className="text-xs text-muted-foreground">Start</Label>
-                <Input id="startDate" name="startDate" type="date" className="h-9 rounded-full" />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="deadline" className="text-xs text-muted-foreground">Deadline</Label>
-                <Input id="deadline" name="deadline" type="date" className="h-9 rounded-full" />
-              </div>
+            <div className="mx-3 grid rounded-panel bg-muted/60 p-1.5 sm:grid-cols-2">
+              <Prop icon={FolderIcon} label="Project">
+                <Pick
+                  aria-label="Project"
+                  variant="ghost"
+                  className={propPick}
+                  value={projectId}
+                  onChange={setProjectId}
+                  options={projects.map((p) => ({
+                    value: p.id,
+                    label: (
+                      <span className="flex items-center gap-2">
+                        <ProjectDot color={p.color} />
+                        {p.name}
+                      </span>
+                    ),
+                  }))}
+                />
+              </Prop>
+              <Prop icon={UserIcon} label="Assignee">
+                <Pick
+                  aria-label="Assignee"
+                  variant="ghost"
+                  className={propPick}
+                  value={assigneeId}
+                  onChange={setAssigneeId}
+                  options={[
+                    { value: UNASSIGNED, label: "Unassigned" },
+                    ...members.map((m) => ({ value: m.id, label: m.id === meId ? `${m.name} (me)` : m.name })),
+                  ]}
+                />
+              </Prop>
+              <Prop icon={CircleDashedIcon} label="Status">
+                <Pick aria-label="Status" variant="ghost" className={propPick} value={status} onChange={(v) => setStatus(v as TaskStatus)} options={statusOptions} />
+              </Prop>
+              <Prop icon={FlagIcon} label="Priority">
+                <Pick aria-label="Priority" variant="ghost" className={propPick} value={priority} onChange={(v) => setPriority(v as TaskPriority)} options={priorityOptions} />
+              </Prop>
+              <Prop icon={TagIcon} label="Type">
+                <Pick aria-label="Type" variant="ghost" className={propPick} value={type} onChange={(v) => setType(v as TaskType)} options={typeOptions} />
+              </Prop>
+              <Prop icon={CalendarIcon} label="Dates">
+                <DateRangePicker className="flex-1" />
+              </Prop>
             </div>
             {error && <p className="px-6 pt-3 text-sm text-destructive" role="alert">{error}</p>}
-            <div className="mt-6 flex items-center justify-between gap-3 border-t px-6 py-4">
-              <span className="hidden text-xs text-muted-foreground sm:block">
-                Press <kbd className="rounded border px-1">C</kbd> anywhere to add a task
+            <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-5">
+              <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                <kbd className={kbd}>⌘</kbd>
+                <kbd className={kbd}>↵</kbd>
+                to add
+                <span className="mx-1 text-foreground/20">·</span>
+                <kbd className={kbd}>C</kbd>
+                anywhere for a new one
               </span>
-              <Button type="submit" size="lg" className="ml-auto h-10 rounded-full px-5" disabled={pending}>
+              <Button type="submit" size="lg" className="ml-auto h-10 gap-2 rounded-full px-5" disabled={pending}>
                 {pending ? "Adding…" : "Add task"}
+                {!pending && <ArrowUpIcon className="size-4" />}
               </Button>
             </div>
           </form>

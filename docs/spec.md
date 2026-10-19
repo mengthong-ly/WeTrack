@@ -34,7 +34,7 @@ Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule heal
 ## Milestones
 
 1. **Core** ✅ — sign-in, invite-only team, projects, tasks list + detail (sub-tasks, comments, inline editing), dashboard tiles, motion, sheet import.
-2. **Reporting** — CEO share link page; client-update checklist + drafted message + history.
+2. **Reporting** ✅ — CEO share link (`/r/[token]`, read-only, filter by person; created, regenerated or turned off from Team by owners/admins); per-project client updates (`/projects/[id]/updates`: unreported changes grouped per task, drafted message, mark as sent, history).
 3. **Planning** — release log UI (create/edit versions, link tasks, log release activity); timeline (week Gantt with S/P markers).
 4. **Quick capture** — type "Add accessories for AsiaMode due Fri" → parsed project/deadline/priority.
 
@@ -42,4 +42,4 @@ Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule heal
 
 - Every server action re-checks the session and that the target row belongs to the caller's workspace.
 - Sign-up must prove it came from the right link (`lib/auth.ts`): the first account needs the server's `SETUP_TOKEN`; everyone else needs the invite id from their email, matched to a pending, unexpired invitation for that address.
-- Share-link tokens will be stored hashed (M2).
+- Share-link tokens are stored as sha256 hashes, shown once, one live link per workspace; the page is `noindex` and `no-referrer`.

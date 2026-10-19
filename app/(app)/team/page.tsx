@@ -4,19 +4,22 @@ import type { Metadata } from "next"
 import { UserAvatar } from "@/components/bits"
 import { CancelInvite, InviteForm } from "@/components/invite-form"
 import { Reveal } from "@/components/motion-bits"
+import { ShareLinkCard } from "@/components/share-link-card"
 import { db } from "@/lib/db"
 import { invitation } from "@/lib/db/schema"
-import { listMembers, listTasks } from "@/lib/queries"
+import { activeShareLink, listMembers, listTasks } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
+import { ago } from "@/lib/time"
 
 export const metadata: Metadata = { title: "Team" }
 
 export default async function TeamPage() {
   const me = await requireMember()
   const canInvite = me.role !== "member"
-  const [members, tasks, invites] = await Promise.all([
+  const [members, tasks, link, invites] = await Promise.all([
     listMembers(me.orgId),
     listTasks(me.orgId),
+    activeShareLink(me.orgId),
     db.query.invitation.findMany({
       where: and(eq(invitation.organizationId, me.orgId), eq(invitation.status, "pending"), gt(invitation.expiresAt, new Date())),
     }),
@@ -30,7 +33,7 @@ export default async function TeamPage() {
       </Reveal>
 
       {canInvite && (
-        <Reveal index={1} className="rounded-[2rem] bg-card p-6 shadow-sm">
+        <Reveal index={1} className="rounded-tile bg-card p-6 shadow-sm">
           <h2 className="mb-4 text-lg">Invite a teammate</h2>
           <InviteForm />
           {invites.length > 0 && (
@@ -48,14 +51,34 @@ export default async function TeamPage() {
         </Reveal>
       )}
 
-      <Reveal index={2} className="rounded-[2rem] bg-card p-3 shadow-sm">
+      {canInvite && (
+        <Reveal index={2} className="rounded-tile bg-card p-6 shadow-sm">
+          <h2 className="mb-2 text-lg">CEO link</h2>
+          <ShareLinkCard
+            active={
+              link
+                ? {
+                    createdAt: link.createdAt.toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      timeZone: process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh",
+                    }),
+                    lastViewed: link.lastViewedAt && ago(link.lastViewedAt),
+                  }
+                : null
+            }
+          />
+        </Reveal>
+      )}
+
+      <Reveal index={3} className="rounded-tile bg-card p-3 shadow-sm">
         <ul className="flex flex-col">
           {members.map((m) => {
             const mine = tasks.filter((t) => t.assigneeId === m.id)
             const active = mine.filter((t) => ["in_progress", "review", "blocked"].includes(t.status)).length
             const open = mine.filter((t) => t.status !== "completed").length
             return (
-              <li key={m.id} className="flex items-center gap-4 rounded-[1.5rem] px-3 py-3 hover:bg-muted/60">
+              <li key={m.id} className="flex items-center gap-4 rounded-panel px-3 py-3 hover:bg-muted/60">
                 <UserAvatar user={m} className="size-11 ring-0" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate">

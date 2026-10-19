@@ -1,6 +1,6 @@
 "use server"
 
-import { and, eq, max } from "drizzle-orm"
+import { and, eq, inArray, isNull, max } from "drizzle-orm"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -10,9 +10,11 @@ import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   activity,
+  clientUpdate,
   comment,
   member,
   project,
+  shareLink,
   subtask,
   task,
   TASK_PRIORITIES,
@@ -20,6 +22,7 @@ import {
   TASK_TYPES,
 } from "@/lib/db/schema"
 import { getSession, requireMember } from "@/lib/session"
+import { hashShareToken, newShareToken } from "@/lib/share"
 
 type Result = { error?: string }
 
@@ -253,6 +256,89 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
   if (!parsed.success) return { error: "Write something first." }
   if (!(await ownTask(me.orgId, taskId))) return { error: "Task not found." }
   await db.insert(comment).values({ taskId, authorId: me.user.id, body: parsed.data })
+  refresh()
+  return {}
+}
+
+// ---------- CEO share link ----------
+
+export async function createShareLink(): Promise<Result & { token?: string }> {
+  const me = await requireMember()
+  if (me.role === "member") return { error: "Only owners and admins can manage the share link." }
+  const token = newShareToken()
+  // One live link per workspace: regenerating revokes the old one.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(shareLink)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(shareLink.organizationId, me.orgId), isNull(shareLink.revokedAt)))
+    await tx.insert(shareLink).values({
+      organizationId: me.orgId,
+      tokenHash: hashShareToken(token),
+      createdById: me.user.id,
+    })
+  })
+  refresh()
+  return { token }
+}
+
+export async function revokeShareLink(): Promise<Result> {
+  const me = await requireMember()
+  if (me.role === "member") return { error: "Only owners and admins can manage the share link." }
+  await db
+    .update(shareLink)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(shareLink.organizationId, me.orgId), isNull(shareLink.revokedAt)))
+  refresh()
+  return {}
+}
+
+// ---------- Client updates ----------
+
+const ALREADY_REPORTED = Symbol("already reported")
+
+const clientUpdateInput = z.object({
+  projectId: z.string().min(1),
+  activityIds: z.array(z.string().min(1)).min(1, "Tick at least one item.").max(500),
+  message: z.string().trim().min(1, "The message is empty.").max(10_000),
+  itemCount: z.number().int().min(1),
+})
+
+export async function sendClientUpdate(input: z.input<typeof clientUpdateInput>): Promise<Result> {
+  const me = await requireMember()
+  const parsed = clientUpdateInput.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const { projectId, activityIds, message, itemCount } = parsed.data
+  const p = await ownProject(me.orgId, projectId)
+  if (!p) return { error: "Project not found." }
+
+  const stamped = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(clientUpdate)
+      .values({ organizationId: me.orgId, projectId, sentById: me.user.id, message, itemCount })
+      .returning({ id: clientUpdate.id })
+    // Only stamp rows that belong to this project and are still unreported.
+    const done = await tx
+      .update(activity)
+      .set({ reportedInUpdateId: row.id })
+      .where(
+        and(
+          eq(activity.organizationId, me.orgId),
+          eq(activity.projectId, projectId),
+          isNull(activity.reportedInUpdateId),
+          inArray(activity.id, activityIds)
+        )
+      )
+      .returning({ id: activity.id })
+    if (done.length === 0) throw ALREADY_REPORTED
+    return done.length
+  }).catch((e) => {
+    if (e === ALREADY_REPORTED) return 0
+    throw e
+  })
+  if (!stamped) return { error: "Those items were already reported. Refresh the page." }
+
+  await log(me.orgId, me.user.id, "client_update_sent", { projectId, data: { project: p.name, items: itemCount } })
   refresh()
   return {}
 }

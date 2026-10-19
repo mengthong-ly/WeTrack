@@ -45,6 +45,13 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+    /* WeTrack surfaces (see DESIGN.md) */
+    --radius-row: 1.25rem;
+    --radius-panel: 1.5rem;
+    --radius-card: 1.75rem;
+    --radius-tile: 2rem;
+    --radius-sheet: 2.5rem;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root {
@@ -134,4 +141,44 @@
   html {
     @apply font-sans;
     }
+}
+/* Rich text written in <RichText> (Tiptap). Kept small: only the marks and blocks its toolbar offers. */
+@layer components {
+  .rich {
+    @apply flex flex-col gap-2 leading-relaxed break-words;
+  }
+  .rich h3 {
+    @apply text-lg leading-snug text-foreground;
+  }
+  .rich ul {
+    @apply list-disc pl-5;
+  }
+  .rich ol {
+    @apply list-decimal pl-5;
+  }
+  .rich li > p {
+    @apply my-0.5;
+  }
+  .rich strong {
+    @apply font-medium text-foreground;
+  }
+  .rich a {
+    @apply text-foreground underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground;
+  }
+  .rich blockquote {
+    @apply border-l-2 border-foreground/15 pl-3 text-muted-foreground;
+  }
+  .rich code {
+    @apply rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.85em];
+  }
+  .rich pre {
+    @apply overflow-x-auto rounded-row bg-muted px-4 py-3 font-mono text-sm;
+  }
+  .rich pre code {
+    @apply bg-transparent p-0;
+  }
+  .rich p.is-editor-empty:first-child::before {
+    @apply pointer-events-none float-left h-0 text-muted-foreground;
+    content: attr(data-placeholder);
+  }
 }

@@ -31,6 +31,7 @@ import {
 import { ProjectDot, UserAvatar } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
 import { Pick } from "@/components/pick"
+import { RichText } from "@/components/rich-text"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +40,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import type { TaskPriority, TaskStatus, TaskType } from "@/lib/db/enums"
 import { formatDate, HEALTH, PRIORITY, RELEASE_STAGE, STATUS } from "@/lib/labels"
 import {
@@ -377,7 +377,7 @@ function Subtasks({ taskId, subtasks }: { taskId: string; subtasks: TaskDetailDa
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, height: 0 }}
               transition={spring}
-              className="group flex items-center gap-3 rounded-[1.25rem] bg-card px-4 py-3.5 shadow-sm"
+              className="group flex items-center gap-3 rounded-row bg-card px-4 py-3.5 shadow-sm"
             >
               <button
                 type="button"
@@ -420,7 +420,7 @@ function Subtasks({ taskId, subtasks }: { taskId: string; subtasks: TaskDetailDa
           name="title"
           placeholder="Add a sub-task and press Enter"
           aria-label="New sub-task"
-          className="h-12 rounded-[1.25rem] border-dashed bg-transparent px-4 text-base"
+          className="h-12 rounded-row border-dashed bg-transparent px-4 text-base"
         />
       </form>
     </div>
@@ -429,13 +429,13 @@ function Subtasks({ taskId, subtasks }: { taskId: string; subtasks: TaskDetailDa
 
 function Details({ task, onSave }: { task: TaskDetailData; onSave: (v: string | null) => void }) {
   return (
-    <div className="flex flex-col gap-4 rounded-[1.5rem] bg-card p-5 shadow-sm">
-      <Textarea
+    <div className="flex flex-col gap-4 rounded-panel bg-card p-5 shadow-sm">
+      <RichText
         aria-label="Description"
-        defaultValue={task.description ?? ""}
+        defaultValue={task.description}
         placeholder="Add a description, links, acceptance notes…"
-        onBlur={(e) => e.target.value !== (task.description ?? "") && onSave(e.target.value || null)}
-        className="min-h-40 resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 dark:bg-transparent"
+        onBlur={(md) => md !== (task.description ?? "") && onSave(md || null)}
+        contentClassName="min-h-40 text-base"
       />
       <p className="text-xs text-muted-foreground">Created {formatDate(task.createdAt.slice(0, 10), true)}</p>
     </div>
@@ -451,7 +451,7 @@ function Comments({ taskId, comments }: { taskId: string; comments: TaskDetailDa
         {comments.map((c) => (
           <motion.li key={c.id} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3">
             <UserAvatar user={c.author ?? { name: "?" }} className="size-8 ring-0" />
-            <div className="min-w-0 flex-1 rounded-[1.25rem] rounded-tl-md bg-card px-4 py-3 shadow-sm">
+            <div className="min-w-0 flex-1 rounded-row rounded-tl-md bg-card px-4 py-3 shadow-sm">
               <p className="text-xs text-muted-foreground">
                 <span className="text-foreground">{c.author?.name ?? "Former member"}</span> ·{" "}
                 {new Date(c.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
