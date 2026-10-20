@@ -74,7 +74,7 @@ export function CommandMenu({
     const go = (href: string) => () => router.push(href)
     return [
       { id: "new", group: "Actions", label: "New task", icon: icon(PlusIcon), hint: <kbd className={kbd}>C</kbd>, run: () => window.dispatchEvent(new Event(NEW_TASK_EVENT)) },
-      { id: "mine", group: "Actions", label: "My open tasks", icon: icon(UserIcon), run: go(`/tasks?person=${meId}`) },
+      { id: "mine", group: "Actions", label: "My open tasks", icon: icon(UserIcon), run: go(`/tasks?person=${meId}&status=open`) },
       {
         id: "theme",
         group: "Actions",
@@ -85,7 +85,7 @@ export function CommandMenu({
       },
       { id: "home", group: "Go to", label: "Home", icon: icon(LayoutGridIcon), keywords: "dashboard", run: go("/") },
       { id: "tasks", group: "Go to", label: "Tasks", icon: icon(ListChecksIcon), keywords: "list", run: go("/tasks") },
-      { id: "board", group: "Go to", label: "Board", icon: icon(KanbanIcon), keywords: "kanban", run: go("/tasks?layout=board") },
+      { id: "board", group: "Go to", label: "Board", icon: icon(KanbanIcon), keywords: "kanban", run: go("/tasks?view=board") },
       { id: "projects", group: "Go to", label: "Projects", icon: icon(FolderIcon), keywords: "clients", run: go("/projects") },
       { id: "team", group: "Go to", label: "Team", icon: icon(UsersIcon), keywords: "workload people", run: go("/team") },
       ...projects.map((p) => ({

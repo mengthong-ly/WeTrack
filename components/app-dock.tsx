@@ -9,6 +9,7 @@ import { useEffect, useState } from "react"
 import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { spring } from "@/components/motion-bits"
 import { NewTaskDialog } from "@/components/new-task-dialog"
+import type { TaskPriority } from "@/lib/db/enums"
 import type { MemberLite, ProjectLite } from "@/lib/options"
 import { cn, isTyping } from "@/lib/utils"
 
@@ -23,15 +24,22 @@ const NAV = [
 export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[]; meId: string }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  // A fresh object per open, so the dialog resets to these defaults each time.
+  const [preset, setPreset] = useState<{ priority?: TaskPriority }>({})
 
   useEffect(() => {
+    const openNew = (p: { priority?: TaskPriority } = {}) => {
+      setPreset(p)
+      setOpen(true)
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key?.toLowerCase() === "c" && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e.target)) {
         e.preventDefault()
-        setOpen(true)
+        openNew()
       }
     }
-    const onNew = () => setOpen(true)
+    // NEW_TASK_EVENT may carry defaults, e.g. { priority } from a priority group's "Add task" row.
+    const onNew = (e: Event) => openNew((e as CustomEvent).detail ?? {})
     window.addEventListener("keydown", onKey)
     window.addEventListener(NEW_TASK_EVENT, onNew)
     return () => {
@@ -75,7 +83,10 @@ export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[];
           </nav>
           <motion.button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              setPreset({})
+              setOpen(true)
+            }}
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.94 }}
             transition={spring}
@@ -86,7 +97,7 @@ export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[];
           </motion.button>
         </div>
       </div>
-      <NewTaskDialog open={open} onOpenChange={setOpen} {...props} />
+      <NewTaskDialog open={open} onOpenChange={setOpen} preset={preset} {...props} />
     </>
   )
 }

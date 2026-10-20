@@ -63,7 +63,7 @@ Project colours come from `PROJECT_COLORS` in `lib/labels.ts` and appear only as
 | Utility | Size | Use |
 |---|---|---|
 | `rounded-full` | pill | Buttons, inputs, selects, chips, nav, avatars, icon buttons. |
-| `rounded-row` | 1.25rem | List rows: sub-tasks, comment bubbles, checklist items, history rows. |
+| `rounded-row` | 1.25rem | List rows: sub-tasks, comment bubbles, checklist items, history rows, calendar day cells. |
 | `rounded-panel` | 1.5rem | Inner panels: details box, message textarea, share-link box. |
 | `rounded-card` | 1.75rem | Task cards and empty-state boxes. |
 | `rounded-tile` | 2rem | Stat tiles, project cards, standalone cards, dialogs, auth card. |
@@ -154,6 +154,10 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Overdue / blocked / quiet / unowned work | `AttentionList` + `needsAttention()` | `components/attention-list.tsx` |
 | Per-person load (in progress, due 7d, overdue, done this week) | `Workload` + `workload()`; columns are fixed widths so separate row grids line up | `components/workload.tsx` |
 | Tasks by status, drag to move | `TaskBoard` (native drag and drop + a "Move to" menu for keyboard and touch; cards use `layoutId`) | `components/task-board.tsx` |
+| Dense tasks table by priority | `TaskTable` (collapsible groups, "Add task" row prefills priority) | `components/task-table.tsx` |
+| Month calendar + day sheet | `TaskCalendar` (chips on the deadline day, day opens a `Sheet` with a `TaskList`) | `components/task-calendar.tsx` |
+| Side panel over the page | `Sheet` (shadcn, Base UI dialog), `bg-card`, `sm:rounded-l-tile`, `sm:max-w-md` | `components/ui/sheet.tsx` |
+| Tasks page params, date groups, month grid | `readParams()`, `groupByDate()`, `monthGrid()` | `lib/task-views.ts` |
 | Jump anywhere / run an action | `CommandMenu` (⌘K; header trigger) | `components/command-menu.tsx` |
 | Fields typed into a title | `parseCapture()` (`#project @person due fri !urgent`), shown as "Picked up" chips | `lib/quick-capture.ts` |
 | Project marker | `ProjectDot` | `components/bits.tsx` |
@@ -172,6 +176,15 @@ Recurring one-offs to copy, not reinvent:
 - **Editor toolbar**: `size-8` round icon buttons, muted; pressed = `bg-foreground text-background`; groups split by a
   `h-4 w-px bg-foreground/10` rule. Buttons `preventDefault` on mousedown so the selection stays.
 - **Shortcut hint**: `kbd` chips `h-5 min-w-5 rounded-md bg-muted text-[11px]`, hidden below `sm`.
+- **Table rows** (inside a sheet): `h-11` cells, `border-t border-foreground/5` hairlines (the one place lines are
+  allowed: rows on one surface, never between surfaces), opaque `bg-card` with `group-hover:bg-muted` so the pinned
+  first column stays solid. Fixed column widths, title takes the rest, `min-w-4xl` and `overflow-x-auto` on the sheet
+  so phones scroll the table, never the page. Group header: chevron + `PriorityChip` + muted count.
+- **Calendar cell**: `rounded-row bg-muted/50` (outside the month `bg-muted/20`), date in a `size-6` circle (today
+  `bg-foreground text-background`, past days muted). `sm+`: up to 3 `bg-card` pill chips with a `ProjectDot`, then
+  "+N more". Phones: dots only. The month slides 16px in from the side you moved to (0.3s ease-out-expo).
+- **Press feedback**: small pill and icon buttons get `active:scale-95` (cells and rows `active:scale-97`), with
+  `transition-[background-color,scale]`.
 - **Stretched link card**: title `<Link>` with `after:absolute after:inset-0`. Inner interactive elements get `relative z-10`.
 
 ---
@@ -183,6 +196,9 @@ Recurring one-offs to copy, not reinvent:
 - **Optimistic toggles** (`useOptimistic`) for checkboxes and sub-tasks. The server result reconciles.
 - **Shortcuts**: **C** new task, **⌘/Ctrl + K** command menu, **/** focuses task search, **Esc** clears it.
   Single-key shortcuts ignore key presses in fields (`isTyping` in `lib/utils.ts`).
+- **Tasks views**: `?view=date|priority|board|calendar` (date is the default, so it's left out of the URL) and
+  `?status=open|active|done|all` (all is the default). Old `?view=<status>`, `?view=mine` and `?layout=board` links
+  still work. Search, person and project filters apply to every view.
 - **Board columns**: `rounded-tile bg-card/60` (the stat tile surface) holding white `rounded-card` cards with `shadow-sm`.
   The drop target gets `ring-2 ring-foreground/15`. Empty column: dashed `border-foreground/10` box with one line of help.
 - **Create** happens in a dialog (`rounded-tile`, big borderless `font-light` title input, properties panel).
@@ -198,6 +214,8 @@ Recurring one-offs to copy, not reinvent:
   pass `nativeButton={false}`.
 - `Select` shows labels via its `items` prop. Use `Pick`, which handles that.
 - `DropdownMenuLabel` (and other menu group parts) must sit inside a `DropdownMenuGroup`, or Base UI throws.
+- Pill rows that may outgrow the screen and use `self-start` also need `max-w-full`, or they push the page wider than
+  375px.
 - Filters and tabs on one page: change the URL with `window.history.pushState` and read it with
   `useSearchParams` (see `TaskBrowser`). A `<Link>` to `?param=` re-renders the whole page on the server
   and replays every entrance animation.

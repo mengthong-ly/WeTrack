@@ -1,6 +1,6 @@
 "use client"
 
-import { KanbanIcon, ListIcon, SearchIcon, XIcon } from "lucide-react"
+import { CalendarDaysIcon, FlagIcon, KanbanIcon, ListIcon, SearchIcon, XIcon } from "lucide-react"
 import { motion } from "motion/react"
 import { useSearchParams } from "next/navigation"
 import { useDeferredValue, useEffect, useRef, useState } from "react"
@@ -10,9 +10,11 @@ import { spring } from "@/components/motion-bits"
 import { Pick } from "@/components/pick"
 import { PillTabs } from "@/components/pill-tabs"
 import { TaskBoard } from "@/components/task-board"
+import { TaskCalendar } from "@/components/task-calendar"
 import { type TaskCardData, TaskList } from "@/components/task-card"
+import { TaskTable } from "@/components/task-table"
 import type { MemberLite, ProjectLite } from "@/lib/options"
-import { daysBetween } from "@/lib/schedule"
+import { groupByDate, normalizeParams, readParams, STATUS_TABS, type StatusTab, type TaskView } from "@/lib/task-views"
 import { isTyping } from "@/lib/utils"
 
 export type BrowserTask = TaskCardData & {
@@ -22,7 +24,7 @@ export type BrowserTask = TaskCardData & {
 }
 
 const ACTIVE = ["in_progress", "review", "blocked"]
-const VIEWS = {
+const STATUSES: Record<StatusTab, { label: string; match: (t: BrowserTask) => boolean }> = {
   open: { label: "Open", match: (t: BrowserTask) => t.status !== "completed" },
   active: {
     label: "In progress",
@@ -33,15 +35,21 @@ const VIEWS = {
     match: (t: BrowserTask) => t.status === "completed",
   },
   all: { label: "All", match: () => true },
-} as const
-type View = keyof typeof VIEWS
+}
+const VIEWS: { key: TaskView; label: string; icon: typeof ListIcon }[] = [
+  { key: "date", label: "Date", icon: ListIcon },
+  { key: "priority", label: "Priority", icon: FlagIcon },
+  { key: "board", label: "Board", icon: KanbanIcon },
+  { key: "calendar", label: "Calendar", icon: CalendarDaysIcon },
+]
 const EVERYONE = "everyone"
 const WEEK_MS = 7 * 86_400_000
 
 // Filters live in the URL but change through the History API, which Next keeps in sync with
 // useSearchParams without a server round trip — so the page never remounts and only the list animates.
-function setParam(key: string, value: string | null) {
-  const params = new URLSearchParams(window.location.search)
+// Old URLs are rewritten on the first change (normalizeParams), so they keep working.
+function setParam(meId: string, key: string, value: string | null) {
+  const params = normalizeParams(new URLSearchParams(window.location.search), meId)
   if (value) params.set(key, value)
   else params.delete(key)
   const q = params.toString()
@@ -61,14 +69,9 @@ export function TaskBrowser({
   meId: string
   today: string
 }) {
-  const params = useSearchParams()
-  const board = params.get("layout") === "board"
-  const viewParam = params.get("view")
-  // "?view=mine" was the old My tasks tab; it now means "open, assigned to me".
-  const view: View =
-    viewParam && viewParam in VIEWS ? (viewParam as View) : "open"
-  const projectId = params.get("project")
-  const person = viewParam === "mine" ? meId : params.get("person")
+  const { view, status, person, projectId } = readParams(useSearchParams(), meId)
+  const board = view === "board"
+  const set = (key: string, value: string | null) => setParam(meId, key, value)
   const [query, setQuery] = useState("")
   const q = useDeferredValue(query.trim().toLowerCase())
   const search = useRef<HTMLInputElement>(null)
@@ -98,45 +101,12 @@ export function TaskBrowser({
   const weekAgo = Date.parse(today) - WEEK_MS
   const shown = board
     ? filtered.filter((t) => t.status !== "completed" || (t.completedAt ?? 0) > weekAgo)
-    : filtered.filter((t) => VIEWS[view].match(t))
-  if (!board && view === "done")
+    : filtered.filter((t) => STATUSES[status].match(t))
+  if (!board && status === "done")
     shown.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
 
-  const open = (t: BrowserTask) => t.status !== "completed"
-  const groups = (
-    view === "done"
-      ? [{ title: "Completed", tasks: shown }]
-      : [
-          {
-            title: "Overdue",
-            tasks: shown.filter(
-              (t) => open(t) && t.deadline && t.deadline < today
-            ),
-          },
-          {
-            title: "This week",
-            tasks: shown.filter(
-              (t) =>
-                open(t) &&
-                t.deadline &&
-                t.deadline >= today &&
-                daysBetween(today, t.deadline) <= 7
-            ),
-          },
-          {
-            title: "Later",
-            tasks: shown.filter(
-              (t) => open(t) && t.deadline && daysBetween(today, t.deadline) > 7
-            ),
-          },
-          {
-            title: "No deadline",
-            tasks: shown.filter((t) => open(t) && !t.deadline),
-          },
-          { title: "Completed", tasks: shown.filter((t) => !open(t)) },
-        ]
-  ).filter((g) => g.tasks.length > 0)
-
+  const groups =
+    status === "done" ? [{ key: "done", title: "Completed", tasks: shown }] : groupByDate(shown, today)
   const filtering = !!(q || person || projectId)
 
   return (
@@ -149,30 +119,17 @@ export function TaskBrowser({
           </h1>
           <PillTabs
             id="layout"
-            items={[
-              {
-                key: "list",
-                label: (
-                  <>
-                    <ListIcon className="size-4" />
-                    <span className="sr-only sm:not-sr-only">List</span>
-                  </>
-                ),
-                active: !board,
-                onSelect: () => setParam("layout", null),
-              },
-              {
-                key: "board",
-                label: (
-                  <>
-                    <KanbanIcon className="size-4" />
-                    <span className="sr-only sm:not-sr-only">Board</span>
-                  </>
-                ),
-                active: board,
-                onSelect: () => setParam("layout", "board"),
-              },
-            ]}
+            items={VIEWS.map(({ key, label, icon: Icon }) => ({
+              key,
+              label: (
+                <>
+                  <Icon className="size-4" />
+                  <span className="sr-only md:not-sr-only">{label}</span>
+                </>
+              ),
+              active: key === view,
+              onSelect: () => set("view", key === "date" ? null : key),
+            }))}
           />
         </div>
 
@@ -214,8 +171,7 @@ export function TaskBrowser({
             className="h-11 min-w-40 bg-card/70 px-4 ring-1 ring-foreground/5 backdrop-blur dark:bg-card/70"
             value={person ?? EVERYONE}
             onChange={(v) => {
-              setParam("person", v === EVERYONE ? null : v)
-              if (viewParam === "mine") setParam("view", null)
+              set("person", v === EVERYONE ? null : v)
             }}
             options={[
               { value: EVERYONE, label: "Everyone" },
@@ -234,26 +190,26 @@ export function TaskBrowser({
 
         {!board && (
           <PillTabs
-            id="view"
-            className="self-start"
-            items={(Object.keys(VIEWS) as View[]).map((v) => ({
-              key: v,
-              label: VIEWS[v].label,
-              active: v === view,
-              onSelect: () => setParam("view", v === "open" ? null : v),
+            id="status"
+            className="max-w-full self-start"
+            items={STATUS_TABS.map((s) => ({
+              key: s,
+              label: STATUSES[s].label,
+              active: s === status,
+              onSelect: () => set("status", s === "all" ? null : s),
             }))}
           />
         )}
         {projects.length > 0 && (
           <PillTabs
             id="project"
-            className="self-start"
+            className="max-w-full self-start"
             items={[
               {
                 key: "all",
                 label: "All projects",
                 active: !projectId,
-                onSelect: () => setParam("project", null),
+                onSelect: () => set("project", null),
               },
               ...projects.map((p) => ({
                 key: p.id,
@@ -264,7 +220,7 @@ export function TaskBrowser({
                   </>
                 ),
                 active: p.id === projectId,
-                onSelect: () => setParam("project", p.id),
+                onSelect: () => set("project", p.id),
               })),
             ]}
           />
@@ -273,12 +229,16 @@ export function TaskBrowser({
 
       {board ? (
         <TaskBoard tasks={shown} />
+      ) : view === "priority" ? (
+        <TaskTable tasks={shown} />
+      ) : view === "calendar" ? (
+        <TaskCalendar tasks={shown} today={today} />
       ) : (
         // No `layout` here: a size animation scales the card, and when a tab switch interrupts it the
         // sections' counter-scale falls out of step and stretches everything inside.
         <div className="flex flex-col gap-6 rounded-sheet bg-card p-3 shadow-sm sm:p-4">
           {groups.map((g) => (
-            <motion.section key={g.title} layout="position" transition={spring}>
+            <motion.section key={g.key} layout="position" transition={spring}>
               <h2 className="flex items-baseline justify-between px-3 pt-2 pb-3 text-lg">
                 {g.title}
                 <span className="tabular text-sm text-muted-foreground">
