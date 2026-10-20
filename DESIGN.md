@@ -154,7 +154,7 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Overdue / blocked / quiet / unowned work | `AttentionList` + `needsAttention()` | `components/attention-list.tsx` |
 | Per-person load (in progress, due 7d, overdue, done this week) | `Workload` + `workload()`; columns are fixed widths so separate row grids line up | `components/workload.tsx` |
 | Tasks by status, drag to move | `TaskBoard` (native drag and drop + a "Move to" menu for keyboard and touch; cards use `layoutId`) | `components/task-board.tsx` |
-| Dense tasks table by priority | `TaskTable` (collapsible groups, "Add task" row prefills priority) | `components/task-table.tsx` |
+| Dense tasks table by priority | `TaskTable` (collapsible groups, inline status and priority selects, "Add task" row prefills priority) | `components/task-table.tsx` |
 | Month calendar + day sheet | `TaskCalendar` (chips on the deadline day, day opens a `Sheet` with a `TaskList`) | `components/task-calendar.tsx` |
 | Side panel over the page | `Sheet` (shadcn, Base UI dialog), `bg-card`, `sm:rounded-l-tile`, `sm:max-w-md` | `components/ui/sheet.tsx` |
 | Tasks page params, date groups, month grid | `readParams()`, `groupByDate()`, `monthGrid()` | `lib/task-views.ts` |
@@ -179,7 +179,9 @@ Recurring one-offs to copy, not reinvent:
 - **Table rows** (inside a sheet): `h-11` cells, `border-t border-foreground/5` hairlines (the one place lines are
   allowed: rows on one surface, never between surfaces), opaque `bg-card` with `group-hover:bg-muted` so the pinned
   first column stays solid. Fixed column widths, title takes the rest, `min-w-4xl` and `overflow-x-auto` on the sheet
-  so phones scroll the table, never the page. Group header: chevron + `PriorityChip` + muted count.
+  so phones scroll the table, never the page. Group header: chevron + `PriorityChip` + muted count. Status and priority
+  cells are ghost `Pick`s (coloured dot / flag labels, `hover:bg-card` on the hovered row, cell `px-1`), saved
+  optimistically with `useOptimistic`; a new priority moves the row to its group.
 - **Calendar cell**: `rounded-row bg-muted/50` (outside the month `bg-muted/20`), date in a `size-6` circle (today
   `bg-foreground text-background`, past days muted). `sm+`: up to 3 `bg-card` pill chips with a `ProjectDot`, then
   "+N more". Phones: dots only. The month slides 16px in from the side you moved to (0.3s ease-out-expo).

@@ -1,39 +1,81 @@
 "use client"
 
-import { ChevronDownIcon, PlusIcon } from "lucide-react"
+import { ChevronDownIcon, FlagIcon, PlusIcon } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import Link from "next/link"
-import { useState } from "react"
+import { useOptimistic, useState, useTransition } from "react"
+import { toast } from "sonner"
 
+import { updateTask } from "@/app/actions"
 import { PriorityChip, ProjectDot, UserAvatar } from "@/components/bits"
 import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { ProgressBar } from "@/components/motion-bits"
+import { Pick } from "@/components/pick"
 import type { BrowserTask } from "@/components/task-browser"
-import { TASK_PRIORITIES, type TaskPriority } from "@/lib/db/enums"
-import { formatDate, HEALTH, STATUS } from "@/lib/labels"
+import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/lib/db/enums"
+import { formatDate, HEALTH, PRIORITY, STATUS } from "@/lib/labels"
 import { cn } from "@/lib/utils"
 
 // Title takes what's left; the rest are fixed so every group's columns line up.
 const COLUMNS = [
   { label: "Title", className: "" },
   { label: "Project", className: "w-36" },
-  { label: "Sub-tasks", className: "w-40" },
-  { label: "Status", className: "w-32" },
+  { label: "Sub-tasks", className: "w-36" },
+  { label: "Status", className: "w-40" },
+  { label: "Priority", className: "w-32" },
   { label: "Assignee", className: "w-40" },
   { label: "Deadline", className: "w-24" },
 ]
 // Sticky cells need an opaque fill, so the row hover is bg-muted rather than a tint.
 const cell = "h-11 border-t border-foreground/5 bg-card px-3 transition-colors group-hover:bg-muted"
 const pinned = "sticky left-0 z-10"
+// Inline selects sit on a hovered (bg-muted) row, so their own hover is the white card, as in the create dialog.
+// Their cells drop to px-1 so the label keeps the room the trigger's padding and chevron take.
+const inline = "ml-0 h-8 w-full justify-between px-2.5 hover:bg-card dark:bg-transparent dark:hover:bg-card"
+const STATUS_OPTIONS = TASK_STATUSES.map((s) => ({
+  value: s,
+  label: (
+    <span className={cn("flex min-w-0 items-center gap-2", STATUS[s].className)}>
+      <span className="size-2 shrink-0 rounded-full bg-current" />
+      <span className="truncate">{STATUS[s].label}</span>
+    </span>
+  ),
+}))
+const PRIORITY_OPTIONS = TASK_PRIORITIES.map((p) => ({
+  value: p,
+  label: (
+    <span className={cn("flex items-center gap-1.5", PRIORITY[p].className)}>
+      <FlagIcon className="size-3.5 fill-current" />
+      {PRIORITY[p].label}
+    </span>
+  ),
+}))
+type Patch = { status?: TaskStatus; priority?: TaskPriority }
 
 // A dense backlog grouped by priority. On narrow screens it scrolls sideways inside its sheet with the
 // title column pinned, so the page itself never scrolls horizontally.
 export function TaskTable({ tasks }: { tasks: BrowserTask[] }) {
   const [collapsed, setCollapsed] = useState<TaskPriority[]>([])
+  const [, start] = useTransition()
+  // Edits show at once (a new priority moves the row to its group); the server result reconciles.
+  const [patches, patch] = useOptimistic(
+    {} as Record<string, Patch>,
+    (s, [id, p]: [string, Patch]) => ({ ...s, [id]: { ...s[id], ...p } })
+  )
+  const shown = tasks.map((t) => (patches[t.id] ? { ...t, ...patches[t.id] } : t))
+
+  function save(t: BrowserTask, p: Patch) {
+    start(async () => {
+      patch([t.id, p])
+      const res = await updateTask(t.id, p)
+      if (res.error) toast.error(res.error)
+      else if (p.status === "completed") toast.success(`Completed “${t.title}”`)
+    })
+  }
 
   return (
     <div className="overflow-x-auto rounded-sheet bg-card p-3 shadow-sm [scrollbar-width:thin] sm:p-4">
-      <table className="w-full min-w-4xl table-fixed border-separate border-spacing-0 text-sm">
+      <table className="w-full min-w-5xl table-fixed border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
             {COLUMNS.map((c, i) => (
@@ -49,7 +91,7 @@ export function TaskTable({ tasks }: { tasks: BrowserTask[] }) {
         </thead>
         {TASK_PRIORITIES.map((priority) => {
           // Deadline order from the server, with finished work sunk to the bottom (sort is stable).
-          const rows = tasks
+          const rows = shown
             .filter((t) => t.priority === priority)
             .sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"))
           const open = !collapsed.includes(priority)
@@ -74,7 +116,7 @@ export function TaskTable({ tasks }: { tasks: BrowserTask[] }) {
                 </th>
               </tr>
               <AnimatePresence initial={false}>
-                {open && rows.map((t) => <Row key={t.id} task={t} />)}
+                {open && rows.map((t) => <Row key={t.id} task={t} onSave={(p) => save(t, p)} />)}
               </AnimatePresence>
               {open && (
                 <tr>
@@ -98,7 +140,7 @@ export function TaskTable({ tasks }: { tasks: BrowserTask[] }) {
   )
 }
 
-function Row({ task: t }: { task: BrowserTask }) {
+function Row({ task: t, onSave }: { task: BrowserTask; onSave: (p: Patch) => void }) {
   const done = t.status === "completed"
   const late = !done && (t.health === "overdue" || t.health === "due_soon")
   const { done: subDone, total } = t.subtasks
@@ -142,11 +184,25 @@ function Row({ task: t }: { task: BrowserTask }) {
           none
         )}
       </td>
-      <td className={cell}>
-        <span className={cn("flex items-center gap-2", STATUS[t.status].className)}>
-          <span className="size-2 shrink-0 rounded-full bg-current" />
-          <span className="truncate">{STATUS[t.status].label}</span>
-        </span>
+      <td className={cn(cell, "px-1")}>
+        <Pick
+          aria-label={`Status of “${t.title}”`}
+          variant="ghost"
+          className={inline}
+          value={t.status}
+          onChange={(v) => v !== t.status && onSave({ status: v as TaskStatus })}
+          options={STATUS_OPTIONS}
+        />
+      </td>
+      <td className={cn(cell, "px-1")}>
+        <Pick
+          aria-label={`Priority of “${t.title}”`}
+          variant="ghost"
+          className={inline}
+          value={t.priority}
+          onChange={(v) => v !== t.priority && onSave({ priority: v as TaskPriority })}
+          options={PRIORITY_OPTIONS}
+        />
       </td>
       <td className={cell}>
         {t.assignee ? (
