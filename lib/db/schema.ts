@@ -7,6 +7,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
@@ -180,6 +181,14 @@ export const shareLink = pgTable("share_link", {
   lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
   createdAt: createdAt(),
 })
+
+// One row per workspace per digest day. The cron claims the row before sending, so a duplicate
+// delivery of the same run finds it taken and sends nothing.
+export const digestSent = pgTable(
+  "digest_sent",
+  { organizationId: orgId(), sentOn: date("sent_on").notNull(), createdAt: createdAt() },
+  (t) => [primaryKey({ columns: [t.organizationId, t.sentOn] })]
+)
 
 export const projectRelations = relations(project, ({ many }) => ({
   tasks: many(task),
