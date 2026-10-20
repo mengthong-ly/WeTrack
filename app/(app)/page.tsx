@@ -1,12 +1,14 @@
 import { AlertTriangleIcon, CheckCircle2Icon, ClockIcon, InboxIcon } from "lucide-react"
 import Link from "next/link"
 
-import { ProjectDot } from "@/components/bits"
-import { ProgressBar, Reveal } from "@/components/motion-bits"
+import { AttentionList } from "@/components/attention-list"
+import { Reveal } from "@/components/motion-bits"
+import { ProjectHealthList } from "@/components/project-health-list"
 import { StatTile } from "@/components/stat-tile"
 import { TaskList } from "@/components/task-card"
 import { describeActivity } from "@/lib/activity-text"
-import { projectProgress, summarize } from "@/lib/dashboard"
+import { needsAttention, projectProgress, summarize } from "@/lib/dashboard"
+import { HEALTH, STATUS } from "@/lib/labels"
 import { listProjects, listTasks, recentActivity } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
@@ -25,7 +27,8 @@ export default async function HomePage() {
   const s = summarize(tasks, today)
   const focus = s.focus
   const upNext = s.upNext.slice(0, 6)
-  const projectStats = projectProgress(projects, tasks)
+  const projectStats = projectProgress(projects, tasks, today)
+  const attention = needsAttention(tasks, today)
 
   return (
     <div className="flex flex-col gap-8">
@@ -44,16 +47,16 @@ export default async function HomePage() {
           label="In progress"
           value={focus.length}
           meta={s.blocked ? `${s.blocked} blocked` : "none blocked"}
-          metaClassName={s.blocked ? "text-red-600" : undefined}
+          metaClassName={s.blocked ? STATUS.blocked.className : undefined}
         />
-        <StatTile index={3} icon={CheckCircle2Icon} label="Completed" value={s.done} meta={`out of ${s.total}`} />
+        <StatTile index={3} icon={CheckCircle2Icon} label="Done this week" value={s.doneThisWeek} meta={`${s.done} in total`} />
         <StatTile
           index={4}
           icon={AlertTriangleIcon}
           label="Overdue"
           value={s.overdue}
           meta={s.dueSoon ? `${s.dueSoon} due soon` : "nothing due soon"}
-          metaClassName={s.dueSoon ? "text-amber-600" : undefined}
+          metaClassName={s.dueSoon ? HEALTH.due_soon.className : undefined}
         />
       </section>
 
@@ -80,31 +83,22 @@ export default async function HomePage() {
 
         <div className="flex flex-col gap-6">
           <Reveal index={6} className="rounded-sheet bg-card p-6 shadow-sm">
+            <h2 className="flex items-baseline justify-between text-lg">
+              Needs attention
+              <span className="tabular text-sm text-muted-foreground">{attention.length}</span>
+            </h2>
+            <AttentionList items={attention} href={(id) => `/tasks/${id}`} />
+          </Reveal>
+
+          <Reveal index={7} className="rounded-sheet bg-card p-6 shadow-sm">
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg">Projects</h2>
               <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">All</Link>
             </div>
-            <ul className="mt-4 flex flex-col gap-4">
-              {projectStats.map((p) => (
-                <li key={p.id}>
-                  <Link href={`/tasks?project=${p.id}`} className="group block">
-                    <div className="flex items-center gap-2 text-sm">
-                      <ProjectDot color={p.color} />
-                      <span className="group-hover:underline">{p.name}</span>
-                      <span className="ml-auto text-muted-foreground tabular">{p.progress}%</span>
-                    </div>
-                    <ProgressBar value={p.progress} className="mt-2" />
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      {p.open} open · {p.total - p.open} done
-                    </p>
-                  </Link>
-                </li>
-              ))}
-              {projectStats.length === 0 && <li className="text-sm text-muted-foreground">No project activity yet.</li>}
-            </ul>
+            <ProjectHealthList projects={projectStats} href={(id) => `/tasks?project=${id}`} />
           </Reveal>
 
-          <Reveal index={7} className="rounded-sheet bg-card p-6 shadow-sm">
+          <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
             <h2 className="text-lg">Recent activity</h2>
             <ul className="mt-4 flex flex-col gap-3.5">
               {activity.map((a) => (

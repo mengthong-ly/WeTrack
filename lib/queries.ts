@@ -46,6 +46,23 @@ export function listTasks(orgId: string) {
 }
 export type TaskRow = Awaited<ReturnType<typeof listTasks>>[number]
 
+// Just enough to find a task by name from the command menu.
+export function taskIndex(orgId: string) {
+  return db
+    .select({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      projectName: project.name,
+      projectColor: project.color,
+    })
+    .from(task)
+    .innerJoin(project, eq(project.id, task.projectId))
+    .where(eq(task.organizationId, orgId))
+    .orderBy(desc(task.updatedAt))
+}
+export type TaskIndexRow = Awaited<ReturnType<typeof taskIndex>>[number]
+
 export function getTask(orgId: string, id: string) {
   return db.query.task.findFirst({
     where: and(eq(task.organizationId, orgId), eq(task.id, id)),

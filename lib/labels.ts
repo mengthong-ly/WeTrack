@@ -1,5 +1,5 @@
 import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
-import type { Health, ReleaseStage } from "@/lib/schedule"
+import type { Health, ProjectHealth, ReleaseStage } from "@/lib/schedule"
 
 export const STATUS: Record<TaskStatus, { label: string; className: string }> = {
   not_started: { label: "Not started", className: "text-muted-foreground" },
@@ -23,6 +23,14 @@ export const HEALTH: Record<Health, { label: string; className: string }> = {
   on_track: { label: "On track", className: "text-emerald-600 dark:text-emerald-400" },
   no_deadline: { label: "No deadline", className: "text-muted-foreground" },
   done: { label: "Done", className: "text-muted-foreground" },
+}
+
+// `dot` is the solid swatch for the small health marker next to a project.
+export const PROJECT_HEALTH: Record<ProjectHealth, { label: string; className: string; dot: string }> = {
+  off_track: { label: "Behind", className: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
+  at_risk: { label: "At risk", className: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" },
+  on_track: { label: "On track", className: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" },
+  done: { label: "All done", className: "text-muted-foreground", dot: "bg-muted-foreground" },
 }
 
 export const RELEASE_STAGE: Record<ReleaseStage, string> = {
