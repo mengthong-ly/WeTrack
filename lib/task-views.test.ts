@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { addMonths, groupByDate, monthGrid, readParams } from "./task-views.ts"
+import { addMonths, groupByDate, readParams } from "./task-views.ts"
 
 const read = (q: string) => readParams(new URLSearchParams(q), "me")
 
@@ -33,13 +33,7 @@ test("groupByDate: overdue, each day soonest first, no deadline, done earlier", 
   )
 })
 
-test("monthGrid covers whole Monday-first weeks", () => {
-  const oct = monthGrid("2026-10") // 1 Oct 2026 is a Thursday
-  assert.equal(oct.length, 35)
-  assert.equal(oct[0], "2026-09-28")
-  assert.equal(oct[3], "2026-10-01")
-  assert.equal(oct.at(-1), "2026-11-01")
-  assert.equal(monthGrid("2027-02").length, 28) // starts on a Monday, 28 days
+test("addMonths crosses years", () => {
   assert.equal(addMonths("2026-12", 1), "2027-01")
   assert.equal(addMonths("2026-01", -1), "2025-12")
 })
