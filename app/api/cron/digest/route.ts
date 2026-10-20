@@ -1,7 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto"
+import { and, eq } from "drizzle-orm"
 
 import { db } from "@/lib/db"
-import { organization } from "@/lib/db/schema"
+import { digestSent, organization } from "@/lib/db/schema"
 import { type Attention, needsAttention, projectProgress, STALE_DAYS, workload } from "@/lib/dashboard"
 import { buildDigest } from "@/lib/digest"
 import { sendEmail } from "@/lib/email"
@@ -25,7 +26,7 @@ function authorized(request: Request) {
 }
 
 // Monday digest for owners and admins. Vercel cron calls this with `Authorization: Bearer $CRON_SECRET`.
-// ponytail: no dedupe, so a rare duplicate cron delivery sends the email twice; record a last-sent date per org if that bites.
+// Each workspace is claimed in digest_sent for today first, so a duplicate cron delivery sends nothing.
 export async function GET(request: Request) {
   if (!authorized(request)) return new Response("Unauthorized", { status: 401 })
 
@@ -68,7 +69,24 @@ export async function GET(request: Request) {
           .filter((w) => w.open || w.doneThisWeek)
           .map(({ member, ...w }) => ({ name: member.name, ...w })),
       })
-      await sendEmail(to, subject, text, html)
+      const claimed = await db
+        .insert(digestSent)
+        .values({ organizationId: org.id, sentOn: today })
+        .onConflictDoNothing()
+        .returning()
+      if (!claimed.length) {
+        results.push({ org: org.id, alreadySent: true })
+        continue
+      }
+      try {
+        await sendEmail(to, subject, text, html)
+      } catch (error) {
+        // Free the day again so a manual re-run can send it.
+        await db
+          .delete(digestSent)
+          .where(and(eq(digestSent.organizationId, org.id), eq(digestSent.sentOn, today)))
+        throw error
+      }
       results.push({ org: org.id, sent: to.length })
     } catch (error) {
       console.error(`Digest failed for ${org.id}`, error)
