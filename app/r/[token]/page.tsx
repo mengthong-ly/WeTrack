@@ -9,21 +9,24 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 
 import { ProjectDot, UserAvatar } from "@/components/bits"
+import { AttentionList } from "@/components/attention-list"
 import { Logo } from "@/components/logo"
-import { ProgressBar, Reveal } from "@/components/motion-bits"
+import { Reveal } from "@/components/motion-bits"
 import { PillTabs } from "@/components/pill-tabs"
+import { ProjectHealthList } from "@/components/project-health-list"
 import { StatTile } from "@/components/stat-tile"
 import { TaskList } from "@/components/task-card"
+import { Workload } from "@/components/workload"
 import { describeActivity } from "@/lib/activity-text"
-import { projectProgress, summarize } from "@/lib/dashboard"
-import { formatDate, HEALTH } from "@/lib/labels"
+import { needsAttention, projectProgress, summarize, workload } from "@/lib/dashboard"
+import { formatDate, HEALTH, STATUS } from "@/lib/labels"
 import {
   listMembers,
   listProjects,
   listTasks,
   recentActivity,
 } from "@/lib/queries"
-import { health, todayISO } from "@/lib/schedule"
+import { doneThisWeek, health, todayISO } from "@/lib/schedule"
 import { resolveShareLink } from "@/lib/share"
 import { toCard } from "@/lib/task-view"
 import { ago, longDate } from "@/lib/time"
@@ -80,6 +83,10 @@ export default async function SharedDashboard({
     .filter((t) => t.deadline)
     .sort((a, b) => a.deadline!.localeCompare(b.deadline!))
     .slice(0, 8)
+  const attention = needsAttention(tasks, today)
+  const shipped = tasks
+    .filter((t) => doneThisWeek(t, today))
+    .sort((a, b) => b.completedAt!.getTime() - a.completedAt!.getTime())
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 pt-6 pb-16 sm:px-8 sm:pt-10">
@@ -138,14 +145,14 @@ export default async function SharedDashboard({
             label="In progress"
             value={s.focus.length}
             meta={s.blocked ? `${s.blocked} blocked` : "none blocked"}
-            metaClassName={s.blocked ? "text-red-600" : undefined}
+            metaClassName={s.blocked ? STATUS.blocked.className : undefined}
           />
           <StatTile
             index={4}
             icon={CheckCircle2Icon}
-            label="Completed"
-            value={s.done}
-            meta={`out of ${s.total}`}
+            label="Done this week"
+            value={s.doneThisWeek}
+            meta={`${s.done} in total`}
           />
           <StatTile
             index={5}
@@ -153,9 +160,16 @@ export default async function SharedDashboard({
             label="Overdue"
             value={s.overdue}
             meta={s.dueSoon ? `${s.dueSoon} due soon` : "nothing due soon"}
-            metaClassName={s.dueSoon ? "text-amber-600" : undefined}
+            metaClassName={s.dueSoon ? HEALTH.due_soon.className : undefined}
           />
         </section>
+
+        {!person && members.length > 1 && (
+          <Reveal index={6} className="rounded-sheet bg-card p-3 shadow-sm sm:p-4">
+            <h2 className="px-3 pt-2 pb-4 text-lg">Team this week</h2>
+            <Workload rows={workload(members, allTasks, today)} href={(id) => `${base}?person=${id}`} />
+          </Reveal>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Reveal
@@ -186,6 +200,14 @@ export default async function SharedDashboard({
           </Reveal>
 
           <div className="flex flex-col gap-6">
+            <Reveal index={7} className="rounded-sheet bg-card p-6 shadow-sm">
+              <h2 className="flex items-baseline justify-between text-lg">
+                Needs attention
+                <span className="tabular text-sm text-muted-foreground">{attention.length}</span>
+              </h2>
+              <AttentionList items={attention} />
+            </Reveal>
+
             <Reveal
               index={7}
               className="rounded-sheet bg-card p-6 shadow-sm"
@@ -224,32 +246,44 @@ export default async function SharedDashboard({
               </ul>
             </Reveal>
 
-            <Reveal
-              index={8}
-              className="rounded-sheet bg-card p-6 shadow-sm"
-            >
-              <h2 className="text-lg">Projects</h2>
-              <ul className="mt-4 flex flex-col gap-4">
-                {projectProgress(projects, tasks).map((p) => (
-                  <li key={p.id}>
-                    <div className="flex items-center gap-2 text-sm">
-                      <ProjectDot color={p.color} />
-                      {p.name}
-                      <span className="tabular ml-auto text-muted-foreground">
-                        {p.progress}%
+            <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
+              <h2 className="flex items-baseline justify-between text-lg">
+                Done this week
+                <span className="tabular text-sm text-muted-foreground">{shipped.length}</span>
+              </h2>
+              <ul className="mt-4 flex flex-col gap-3">
+                {shipped.slice(0, 8).map((t) => (
+                  <li key={t.id} className="flex items-start gap-3 text-sm">
+                    <CheckCircle2Icon className={`mt-0.5 size-4 shrink-0 ${STATUS.completed.className}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{t.title}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <ProjectDot color={t.project.color} />
+                        {t.project.name}
+                        {t.assignee && <span>· {t.assignee.name.split(" ")[0]}</span>}
                       </span>
-                    </div>
-                    <ProgressBar value={p.progress} className="mt-2" />
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      {p.open} open · {p.total - p.open} done
-                    </p>
+                    </span>
                   </li>
                 ))}
+                {shipped.length > 8 && (
+                  <li className="text-xs text-muted-foreground">and {shipped.length - 8} more</li>
+                )}
+                {shipped.length === 0 && (
+                  <li className="text-sm text-muted-foreground">Nothing finished in the last 7 days.</li>
+                )}
               </ul>
             </Reveal>
 
             <Reveal
               index={9}
+              className="rounded-sheet bg-card p-6 shadow-sm"
+            >
+              <h2 className="text-lg">Projects</h2>
+              <ProjectHealthList projects={projectProgress(projects, tasks, today)} />
+            </Reveal>
+
+            <Reveal
+              index={10}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Recent activity</h2>

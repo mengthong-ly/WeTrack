@@ -28,8 +28,19 @@ function useWide() {
 
 // Start → deadline as one range. Picking a single day means "due that day" (no start).
 // Posts `startDate` and `deadline` as yyyy-MM-dd through hidden inputs, so it drops into any <form>.
-export function DateRangePicker({ className }: { className?: string }) {
-  const [range, setRange] = useState<DateRange>()
+// Pass `range` + `onRangeChange` to control it from outside (quick capture fills it in).
+export function DateRangePicker({
+  className,
+  range: controlled,
+  onRangeChange,
+}: {
+  className?: string
+  range?: DateRange
+  onRangeChange?: (range: DateRange | undefined) => void
+}) {
+  const [own, setOwn] = useState<DateRange>()
+  const range = onRangeChange ? controlled : own
+  const setRange = onRangeChange ?? setOwn
   const twoMonths = useWide()
   const from = range?.from
   const to = range?.to

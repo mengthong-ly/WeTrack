@@ -42,7 +42,7 @@ All tokens live in `app/globals.css`. Use the Tailwind utility; never hard-code 
 | `--mist` | (body background) | The faint teal haze at the top-left of every page. Don't reuse elsewhere. |
 | `--destructive` | `text-destructive` | Form errors and destructive menu items only. |
 
-**Semantic colours are defined once in `lib/labels.ts`** (`STATUS`, `PRIORITY`, `HEALTH`) and
+**Semantic colours are defined once in `lib/labels.ts`** (`STATUS`, `PRIORITY`, `HEALTH`, `PROJECT_HEALTH`) and
 must be read from there:
 
 | Meaning | Colour |
@@ -53,6 +53,7 @@ must be read from there:
 | Review / Test | violet-600 |
 | Completed / On track | emerald-600 |
 | Normal priority | blue-600 |
+| Project behind / at risk / on track | red / amber / emerald (`PROJECT_HEALTH`, with a solid `dot`) |
 | Not started / No rush / No deadline | `text-muted-foreground` |
 
 Project colours come from `PROJECT_COLORS` in `lib/labels.ts` and appear only as a small dot (`ProjectDot`).
@@ -148,6 +149,13 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Priority flag chip | `PriorityChip` | `components/bits.tsx` |
 | Status as coloured text | `StatusText` | `components/bits.tsx` |
 | Person | `UserAvatar` (initials fallback) | `components/bits.tsx` |
+| Project health (Behind / At risk / On track) | `HealthBadge`; rule is `projectHealth()` in `lib/schedule.ts` | `components/bits.tsx` |
+| Projects with health, progress, next due | `ProjectHealthList` (Home, CEO page) | `components/project-health-list.tsx` |
+| Overdue / blocked / quiet / unowned work | `AttentionList` + `needsAttention()` | `components/attention-list.tsx` |
+| Per-person load (in progress, due 7d, overdue, done this week) | `Workload` + `workload()`; columns are fixed widths so separate row grids line up | `components/workload.tsx` |
+| Tasks by status, drag to move | `TaskBoard` (native drag and drop + a "Move to" menu for keyboard and touch; cards use `layoutId`) | `components/task-board.tsx` |
+| Jump anywhere / run an action | `CommandMenu` (⌘K; header trigger) | `components/command-menu.tsx` |
+| Fields typed into a title | `parseCapture()` (`#project @person due fri !urgent`), shown as "Picked up" chips | `lib/quick-capture.ts` |
 | Project marker | `ProjectDot` | `components/bits.tsx` |
 | Progress | `ProgressBar` (animated) | `components/motion-bits.tsx` |
 | Animated number | `CountUp` | `components/motion-bits.tsx` |
@@ -173,6 +181,10 @@ Recurring one-offs to copy, not reinvent:
 - **Inline edit**: selects save on change, text saves on blur, dates save on change. Errors go to a
   `toast.error`. Success is silent unless it's a create or delete.
 - **Optimistic toggles** (`useOptimistic`) for checkboxes and sub-tasks. The server result reconciles.
+- **Shortcuts**: **C** new task, **⌘/Ctrl + K** command menu, **/** focuses task search, **Esc** clears it.
+  Single-key shortcuts ignore key presses in fields (`isTyping` in `lib/utils.ts`).
+- **Board columns**: `rounded-tile bg-card/60` (the stat tile surface) holding white `rounded-card` cards with `shadow-sm`.
+  The drop target gets `ring-2 ring-foreground/15`. Empty column: dashed `border-foreground/10` box with one line of help.
 - **Create** happens in a dialog (`rounded-tile`, big borderless `font-light` title input, properties panel).
   **C** opens "New task" anywhere; **⌘/Ctrl + Enter** submits.
 - **Destructive actions**: in a `DropdownMenu` (`variant="destructive"`), confirmed with `confirm()`.

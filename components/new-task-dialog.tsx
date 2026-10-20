@@ -7,13 +7,16 @@ import {
   FlagIcon,
   FolderIcon,
   type LucideIcon,
+  SparklesIcon,
   TagIcon,
   UserIcon,
   XIcon,
 } from "lucide-react"
+import { format } from "date-fns"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
+import type { DateRange } from "react-day-picker"
 import { toast } from "sonner"
 
 import { createTask } from "@/app/actions"
@@ -25,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import type { TaskPriority, TaskStatus, TaskType } from "@/lib/db/enums"
+import { PRIORITY } from "@/lib/labels"
 import {
   type MemberLite,
   priorityOptions,
@@ -33,10 +37,15 @@ import {
   typeOptions,
   UNASSIGNED,
 } from "@/lib/options"
+import { type Captured, parseCapture } from "@/lib/quick-capture"
 
 const LAST_PROJECT = "wetrack:last-project"
 const propPick = "ml-0 min-w-0 flex-1 justify-between px-2.5 hover:bg-card dark:bg-transparent dark:hover:bg-card"
 const kbd = "grid h-5 min-w-5 place-items-center rounded-md bg-muted px-1 font-sans text-[11px] text-foreground"
+
+function Token({ children }: { children: React.ReactNode }) {
+  return <code className="rounded-md bg-muted px-1.5 py-0.5 font-sans text-foreground/80">{children}</code>
+}
 
 // One labelled property row in the create dialog's properties panel.
 function Prop({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: React.ReactNode }) {
@@ -77,11 +86,32 @@ export function NewTaskDialog({
   const [type, setType] = useState<TaskType>("development")
   const [status, setStatus] = useState<TaskStatus>("not_started")
   const [assigneeId, setAssigneeId] = useState(meId)
+  const [title, setTitle] = useState("")
+  const [range, setRange] = useState<DateRange>()
+  const [captured, setCaptured] = useState<Captured>({ title: "" })
+
+  // Quick capture: "#project @person due fri !urgent" in the title fills the fields as you type.
+  // Only fields whose token changed are applied, so picking a value by hand afterwards sticks.
+  function onTitle(text: string) {
+    setTitle(text)
+    const next = parseCapture(text, { projects, members, meId, today: format(new Date(), "yyyy-MM-dd") })
+    if (next.projectId && next.projectId !== captured.projectId) setProjectId(next.projectId)
+    if (next.assigneeId && next.assigneeId !== captured.assigneeId) setAssigneeId(next.assigneeId)
+    if (next.priority && next.priority !== captured.priority) setPriority(next.priority)
+    if (next.deadline && next.deadline !== captured.deadline) setRange({ from: new Date(`${next.deadline}T00:00:00`) })
+    setCaptured(next)
+  }
+  const picked = [
+    captured.projectId && projects.find((p) => p.id === captured.projectId)?.name,
+    captured.assigneeId && members.find((m) => m.id === captured.assigneeId)?.name.split(" ")[0],
+    captured.deadline && `Due ${format(new Date(`${captured.deadline}T00:00:00`), "EEE d MMM")}`,
+    captured.priority && PRIORITY[captured.priority].label,
+  ].filter(Boolean) as string[]
 
   function submit(form: FormData) {
     start(async () => {
       const res = await createTask({
-        title: String(form.get("title") ?? ""),
+        title: captured.title || title,
         description: String(form.get("description") ?? ""),
         projectId,
         assigneeId: assigneeId === UNASSIGNED ? null : assigneeId,
@@ -97,6 +127,9 @@ export function NewTaskDialog({
         localStorage.setItem(LAST_PROJECT, projectId)
       } catch {}
       setError(undefined)
+      setTitle("")
+      setCaptured({ title: "" })
+      setRange(undefined)
       onOpenChange(false)
       toast.success("Task added", {
         action: { label: "Open", onClick: () => router.push(`/tasks/${res.id}`) },
@@ -137,10 +170,26 @@ export function NewTaskDialog({
                 name="title"
                 required
                 autoFocus
+                value={title}
+                onChange={(e) => onTitle(e.target.value)}
                 placeholder="What needs doing?"
                 aria-label="Task title"
+                aria-describedby="capture-hint"
                 className="h-auto border-0 bg-transparent px-0 text-3xl font-light tracking-tight shadow-none focus-visible:ring-0 md:text-3xl dark:bg-transparent"
               />
+              <p id="capture-hint" className="flex min-h-6 flex-wrap items-center gap-1.5 text-xs text-muted-foreground" aria-live="polite">
+                {picked.length ? (
+                  <>
+                    <SparklesIcon className="size-3.5" />
+                    Picked up
+                    {picked.map((p) => (
+                      <span key={p} className="rounded-full bg-muted px-2 py-0.5 text-foreground">{p}</span>
+                    ))}
+                  </>
+                ) : (
+                  <>Type <Token>#project</Token> <Token>@person</Token> <Token>due fri</Token> <Token>!urgent</Token> to fill the fields</>
+                )}
+              </p>
               <RichText
                 name="description"
                 placeholder="Add a description…"
@@ -191,7 +240,7 @@ export function NewTaskDialog({
                 <Pick aria-label="Type" variant="ghost" className={propPick} value={type} onChange={(v) => setType(v as TaskType)} options={typeOptions} />
               </Prop>
               <Prop icon={CalendarIcon} label="Dates">
-                <DateRangePicker className="flex-1" />
+                <DateRangePicker className="flex-1" range={range} onRangeChange={setRange} />
               </Prop>
             </div>
             {error && <p className="px-6 pt-3 text-sm text-destructive" role="alert">{error}</p>}

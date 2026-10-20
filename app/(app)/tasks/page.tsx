@@ -3,7 +3,7 @@ import { Suspense } from "react"
 
 import { Reveal } from "@/components/motion-bits"
 import { TaskBrowser } from "@/components/task-browser"
-import { listProjects, listTasks } from "@/lib/queries"
+import { listMembers, listProjects, listTasks } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { byDeadline, toCard } from "@/lib/task-view"
@@ -15,9 +15,10 @@ export const metadata: Metadata = { title: "Tasks" }
 export default async function TasksPage() {
   const me = await requireMember()
   const today = todayISO()
-  const [tasks, projects] = await Promise.all([
+  const [tasks, projects, members] = await Promise.all([
     listTasks(me.orgId),
     listProjects(me.orgId),
+    listMembers(me.orgId),
   ])
 
   return (
@@ -35,6 +36,7 @@ export default async function TasksPage() {
             name,
             color,
           }))}
+          members={members.map(({ id, name, image }) => ({ id, name, image }))}
           meId={me.user.id}
           today={today}
         />

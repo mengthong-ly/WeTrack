@@ -36,7 +36,8 @@ Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule heal
 1. **Core** ✅ — sign-in, invite-only team, projects, tasks list + detail (sub-tasks, comments, inline editing), dashboard tiles, motion, sheet import.
 2. **Reporting** ✅ — CEO share link (`/r/[token]`, read-only, filter by person; created, regenerated or turned off from Team by owners/admins); per-project client updates (`/projects/[id]/updates`: unreported changes grouped per task, drafted message, mark as sent, history).
 3. **Planning** — release log UI (create/edit versions, link tasks, log release activity); timeline (week Gantt with S/P markers).
-4. **Quick capture** — type "Add accessories for AsiaMode due Fri" → parsed project/deadline/priority.
+4. **Quick capture** ✅ — type "Add accessories for AsiaMode due Fri" or "Fix login #asia @dara due fri !urgent" → parsed project/assignee/deadline/priority (`lib/quick-capture.ts`, unit-tested).
+5. **Team & boss views** ✅ — ⌘K command menu; Tasks search, person filter and a status board with drag and drop; project health (behind / at risk / on track); "Needs attention" (overdue, blocked, no update in 5+ days, unassigned); per-person workload on Team and the CEO link; "Done this week". Based on `docs/research/competitive-analysis.md`.
 
 ## Security notes
 

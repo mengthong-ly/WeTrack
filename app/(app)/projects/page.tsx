@@ -2,12 +2,12 @@ import { MessageSquareTextIcon } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 
-import { ProjectDot } from "@/components/bits"
+import { HealthBadge, ProjectDot } from "@/components/bits"
 import { CountUp, ProgressBar, Reveal } from "@/components/motion-bits"
 import { NewProject } from "@/components/new-project"
-import { formatDate } from "@/lib/labels"
+import { formatDate, HEALTH } from "@/lib/labels"
 import { listProjects, listTasks, unreportedCounts } from "@/lib/queries"
-import { effectiveProgress, health, todayISO } from "@/lib/schedule"
+import { effectiveProgress, health, projectHealth, todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { byDeadline } from "@/lib/task-view"
 
@@ -40,9 +40,10 @@ export default async function ProjectsPage() {
               <div className="relative flex h-full min-h-48 flex-col rounded-tile bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                 <div className="flex items-center gap-2">
                   <ProjectDot color={p.color} className="size-2.5" />
-                  <Link href={`/tasks?project=${p.id}`} className="text-lg after:absolute after:inset-0 after:rounded-tile">
+                  <Link href={`/tasks?project=${p.id}`} className="min-w-0 truncate text-lg after:absolute after:inset-0 after:rounded-tile">
                     {p.name}
                   </Link>
+                  {pt.length > 0 && <HealthBadge health={projectHealth(pt, today)} className="ml-auto" />}
                 </div>
                 <span className="mt-auto pt-6 text-5xl font-light tracking-tight">
                   <CountUp value={progress} suffix="%" />
@@ -51,7 +52,7 @@ export default async function ProjectsPage() {
                 <p className="mt-3 flex flex-wrap gap-x-3 text-sm text-muted-foreground">
                   <span>{open.length} open</span>
                   <span>{pt.length - open.length} done</span>
-                  {overdue > 0 && <span className="text-red-600">{overdue} overdue</span>}
+                  {overdue > 0 && <span className={HEALTH.overdue.className}>{overdue} overdue</span>}
                   {next && <span>next due {formatDate(next.deadline)}</span>}
                 </p>
                 <Link

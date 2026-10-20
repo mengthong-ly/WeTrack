@@ -6,10 +6,11 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 
+import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { spring } from "@/components/motion-bits"
 import { NewTaskDialog } from "@/components/new-task-dialog"
 import type { MemberLite, ProjectLite } from "@/lib/options"
-import { cn } from "@/lib/utils"
+import { cn, isTyping } from "@/lib/utils"
 
 const NAV = [
   { href: "/", label: "Home", icon: LayoutGridIcon },
@@ -17,10 +18,6 @@ const NAV = [
   { href: "/projects", label: "Projects", icon: FolderIcon },
   { href: "/team", label: "Team", icon: UsersIcon },
 ]
-
-function isTyping(el: EventTarget | null) {
-  return el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
-}
 
 // Floating pill nav + dark "+" button, like the reference screens.
 export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[]; meId: string }) {
@@ -34,8 +31,13 @@ export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[];
         setOpen(true)
       }
     }
+    const onNew = () => setOpen(true)
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    window.addEventListener(NEW_TASK_EVENT, onNew)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener(NEW_TASK_EVENT, onNew)
+    }
   }, [])
 
   return (

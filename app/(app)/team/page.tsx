@@ -1,13 +1,15 @@
 import { and, eq, gt } from "drizzle-orm"
 import type { Metadata } from "next"
 
-import { UserAvatar } from "@/components/bits"
 import { CancelInvite, InviteForm } from "@/components/invite-form"
 import { Reveal } from "@/components/motion-bits"
 import { ShareLinkCard } from "@/components/share-link-card"
+import { Workload } from "@/components/workload"
+import { workload } from "@/lib/dashboard"
 import { db } from "@/lib/db"
 import { invitation } from "@/lib/db/schema"
 import { activeShareLink, listMembers, listTasks } from "@/lib/queries"
+import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { ago } from "@/lib/time"
 
@@ -32,8 +34,18 @@ export default async function TeamPage() {
         <p className="mt-1 text-muted-foreground">{me.orgName}</p>
       </Reveal>
 
+      <Reveal index={1} className="rounded-tile bg-card p-3 shadow-sm">
+        <h2 className="px-3 pt-3 pb-4 text-lg">Workload</h2>
+        <Workload
+          rows={workload(members, tasks, todayISO())}
+          href={(id) => `/tasks?person=${id}`}
+          sub={(m) => (m.id === me.user.id ? `${m.email} · you` : m.email)}
+          trailing={(m) => <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">{m.role}</span>}
+        />
+      </Reveal>
+
       {canInvite && (
-        <Reveal index={1} className="rounded-tile bg-card p-6 shadow-sm">
+        <Reveal index={2} className="rounded-tile bg-card p-6 shadow-sm">
           <h2 className="mb-4 text-lg">Invite a teammate</h2>
           <InviteForm />
           {invites.length > 0 && (
@@ -52,7 +64,7 @@ export default async function TeamPage() {
       )}
 
       {canInvite && (
-        <Reveal index={2} className="rounded-tile bg-card p-6 shadow-sm">
+        <Reveal index={3} className="rounded-tile bg-card p-6 shadow-sm">
           <h2 className="mb-2 text-lg">CEO link</h2>
           <ShareLinkCard
             active={
@@ -71,31 +83,6 @@ export default async function TeamPage() {
         </Reveal>
       )}
 
-      <Reveal index={3} className="rounded-tile bg-card p-3 shadow-sm">
-        <ul className="flex flex-col">
-          {members.map((m) => {
-            const mine = tasks.filter((t) => t.assigneeId === m.id)
-            const active = mine.filter((t) => ["in_progress", "review", "blocked"].includes(t.status)).length
-            const open = mine.filter((t) => t.status !== "completed").length
-            return (
-              <li key={m.id} className="flex items-center gap-4 rounded-panel px-3 py-3 hover:bg-muted/60">
-                <UserAvatar user={m} className="size-11 ring-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate">
-                    {m.name} {m.id === me.user.id && <span className="text-muted-foreground">(you)</span>}
-                  </p>
-                  <p className="truncate text-sm text-muted-foreground">{m.email}</p>
-                </div>
-                <div className="hidden text-right text-sm text-muted-foreground sm:block">
-                  <p>{active} in progress</p>
-                  <p>{open} open</p>
-                </div>
-                <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">{m.role}</span>
-              </li>
-            )
-          })}
-        </ul>
-      </Reveal>
     </div>
   )
 }

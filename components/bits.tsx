@@ -2,7 +2,8 @@ import { FlagIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
-import { initials, PRIORITY, STATUS } from "@/lib/labels"
+import { initials, PRIORITY, PROJECT_HEALTH, STATUS } from "@/lib/labels"
+import type { ProjectHealth } from "@/lib/schedule"
 import { cn } from "@/lib/utils"
 
 export function PriorityChip({ priority, className }: { priority: TaskPriority; className?: string }) {
@@ -43,4 +44,14 @@ export function UserAvatar({
 
 export function ProjectDot({ color, className }: { color: string; className?: string }) {
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", className)} style={{ background: color }} />
+}
+
+export function HealthBadge({ health, className }: { health: ProjectHealth; className?: string }) {
+  const h = PROJECT_HEALTH[health]
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1.5 text-xs font-medium", h.className, className)}>
+      <span className={cn("size-1.5 rounded-full", h.dot)} />
+      {h.label}
+    </span>
+  )
 }

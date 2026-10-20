@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { daysLeft, effectiveProgress, health, releaseStage } from "./schedule.ts"
+import { daysLeft, doneThisWeek, effectiveProgress, health, projectHealth, releaseStage } from "./schedule.ts"
 
 const today = "2026-10-19"
 const t = (status: string, deadline: string | null) => ({ status, deadline })
@@ -34,4 +34,21 @@ test("release stage prefers actual production over staging", () => {
   assert.equal(releaseStage({ ...r, prodPlanned: "2026-11-01" }), "scheduled")
   assert.equal(releaseStage({ ...r, stagingActual: "2026-10-20" }), "on_staging")
   assert.equal(releaseStage({ ...r, stagingActual: "2026-10-20", prodActual: "2026-10-21" }), "in_production")
+})
+
+test("project health: behind beats at risk beats on track", () => {
+  assert.equal(projectHealth([], today), "done")
+  assert.equal(projectHealth([t("completed", "2026-01-01")], today), "done")
+  assert.equal(projectHealth([t("in_progress", "2026-11-30"), t("review", "2026-10-18")], today), "off_track")
+  assert.equal(projectHealth([t("blocked", null)], today), "at_risk")
+  assert.equal(projectHealth([t("not_started", "2026-10-21")], today), "at_risk")
+  assert.equal(projectHealth([t("in_progress", "2026-11-30"), t("not_started", null)], today), "on_track")
+})
+
+test("done this week covers today and the 6 days before", () => {
+  const done = (iso: string) => ({ status: "completed", deadline: null, completedAt: new Date(`${iso}T05:00:00Z`) })
+  assert.equal(doneThisWeek(done("2026-10-19"), today), true)
+  assert.equal(doneThisWeek(done("2026-10-13"), today), true)
+  assert.equal(doneThisWeek(done("2026-10-12"), today), false)
+  assert.equal(doneThisWeek({ ...done("2026-10-19"), status: "in_progress" }, today), false)
 })
