@@ -10,6 +10,6 @@ const transport = nodemailer.createTransport({
     : undefined,
 })
 
-export function sendEmail(to: string, subject: string, text: string) {
-  return transport.sendMail({ from: process.env.EMAIL_FROM, to, subject, text })
+export function sendEmail(to: string | string[], subject: string, text: string, html?: string) {
+  return transport.sendMail({ from: process.env.EMAIL_FROM, to, subject, text, html })
 }
