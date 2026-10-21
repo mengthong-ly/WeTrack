@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { CancelInvite, InviteForm } from "@/components/invite-form"
 import { Reveal } from "@/components/motion-bits"
 import { ShareLinkCard } from "@/components/share-link-card"
+import { SlackCard } from "@/components/slack-card"
 import { Workload } from "@/components/workload"
 import { workload } from "@/lib/dashboard"
 import { db } from "@/lib/db"
@@ -11,6 +12,7 @@ import { invitation } from "@/lib/db/schema"
 import { activeShareLink, listMembers, listTasks } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
+import { hasSlack } from "@/lib/slack"
 import { ago } from "@/lib/time"
 
 export const metadata: Metadata = { title: "Team" }
@@ -18,10 +20,11 @@ export const metadata: Metadata = { title: "Team" }
 export default async function TeamPage() {
   const me = await requireMember()
   const canInvite = me.role !== "member"
-  const [members, tasks, link, invites] = await Promise.all([
+  const [members, tasks, link, slack, invites] = await Promise.all([
     listMembers(me.orgId),
     listTasks(me.orgId),
     activeShareLink(me.orgId),
+    canInvite ? hasSlack(me.orgId) : false,
     db.query.invitation.findMany({
       where: and(eq(invitation.organizationId, me.orgId), eq(invitation.status, "pending"), gt(invitation.expiresAt, new Date())),
     }),
@@ -83,6 +86,12 @@ export default async function TeamPage() {
         </Reveal>
       )}
 
+      {canInvite && (
+        <Reveal index={4} className="rounded-tile bg-card p-6 shadow-sm">
+          <h2 className="mb-2 text-lg">Slack</h2>
+          <SlackCard connected={slack} />
+        </Reveal>
+      )}
     </div>
   )
 }

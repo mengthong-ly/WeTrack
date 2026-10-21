@@ -20,9 +20,11 @@ import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   TASK_TYPES,
+  workspaceIntegration,
 } from "@/lib/db/schema"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
+import { postToWebhook } from "@/lib/slack"
 
 type Result = { error?: string }
 
@@ -289,6 +291,29 @@ export async function revokeShareLink(): Promise<Result> {
     .update(shareLink)
     .set({ revokedAt: new Date() })
     .where(and(eq(shareLink.organizationId, me.orgId), isNull(shareLink.revokedAt)))
+  refresh()
+  return {}
+}
+
+// ---------- Integrations ----------
+
+export async function setSlackWebhook(url: string | null): Promise<Result> {
+  const me = await requireMember()
+  if (me.role === "member") return { error: "Only owners and admins can change Slack." }
+  let value: string | null = null
+  if (url !== null) {
+    value = url.trim()
+    if (!/^https:\/\/hooks\.slack\.com\//.test(value)) return { error: "Paste a Slack incoming webhook URL." }
+    try {
+      await postToWebhook(value, "WeTrack is connected. Meeting links and reminders will appear here.")
+    } catch {
+      return { error: "Slack didn't accept that webhook." }
+    }
+  }
+  await db
+    .insert(workspaceIntegration)
+    .values({ organizationId: me.orgId, slackWebhookUrl: value })
+    .onConflictDoUpdate({ target: workspaceIntegration.organizationId, set: { slackWebhookUrl: value } })
   refresh()
   return {}
 }
