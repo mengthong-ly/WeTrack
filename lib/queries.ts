@@ -1,6 +1,6 @@
 import "server-only"
 
-import { and, asc, countDistinct, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, countDistinct, desc, eq, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm"
 
 import { CLIENT_KINDS } from "@/lib/client-update"
 import { db } from "@/lib/db"
@@ -8,6 +8,7 @@ import {
   activity,
   clientUpdate,
   comment,
+  meeting,
   member,
   project,
   shareLink,
@@ -164,4 +165,53 @@ export function activeShareLink(orgId: string) {
   return db.query.shareLink.findFirst({
     where: and(eq(shareLink.organizationId, orgId), isNull(shareLink.revokedAt)),
   })
+}
+
+// Meetings that aren't cancelled and haven't ended, earliest first.
+function liveMeetings(orgId: string, filter?: SQL) {
+  return db.query.meeting.findMany({
+    columns: {
+      id: true,
+      title: true,
+      startsAt: true,
+      endsAt: true,
+      meetUrl: true,
+      calendarUrl: true,
+      canceledAt: true,
+      attendeeEmails: true,
+      createdById: true,
+    },
+    where: and(
+      eq(meeting.organizationId, orgId),
+      isNull(meeting.canceledAt),
+      gt(meeting.endsAt, new Date()),
+      filter
+    ),
+    with: {
+      task: { columns: { id: true, title: true } },
+      createdBy: { columns: { id: true, name: true, image: true } },
+    },
+    orderBy: asc(meeting.startsAt),
+  })
+}
+export type MeetingRow = Awaited<ReturnType<typeof liveMeetings>>[number]
+
+/** The next `days` (default 7). With `email`/`userId`, only meetings that person is invited to or created. */
+export function upcomingMeetings(
+  orgId: string,
+  opts: { email?: string; userId?: string; days?: number } = {}
+): Promise<MeetingRow[]> {
+  const until = new Date(Date.now() + (opts.days ?? 7) * 86_400_000)
+  const mine =
+    opts.email || opts.userId
+      ? or(
+          opts.email ? sql`${opts.email.toLowerCase()} = any(${meeting.attendeeEmails})` : undefined,
+          opts.userId ? eq(meeting.createdById, opts.userId) : undefined
+        )
+      : undefined
+  return liveMeetings(orgId, and(lt(meeting.startsAt, until), mine))
+}
+
+export function taskMeetings(orgId: string, taskId: string): Promise<MeetingRow[]> {
+  return liveMeetings(orgId, eq(meeting.taskId, taskId))
 }

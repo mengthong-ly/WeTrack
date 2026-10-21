@@ -12,6 +12,7 @@ import {
   activity,
   clientUpdate,
   comment,
+  meeting,
   member,
   project,
   shareLink,
@@ -20,11 +21,14 @@ import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   TASK_TYPES,
+  user,
   workspaceIntegration,
 } from "@/lib/db/schema"
+import { createEvent, deleteEvent, googleToken } from "@/lib/google"
+import { meetingSlot, parseEmails, slackCancelled, slackCreated } from "@/lib/meetings"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
-import { postToWebhook } from "@/lib/slack"
+import { postSlack, postToWebhook } from "@/lib/slack"
 
 type Result = { error?: string }
 
@@ -316,6 +320,125 @@ export async function setSlackWebhook(url: string | null): Promise<Result> {
     .onConflictDoUpdate({ target: workspaceIntegration.organizationId, set: { slackWebhookUrl: value } })
   refresh()
   return {}
+}
+
+// ---------- Meetings ----------
+
+const tz = () => process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh"
+const HHMM = /^\d{2}:\d{2}$/
+
+const meetingInput = z.object({
+  title: z.string().trim().min(1, "Give the meeting a title.").max(200, "Keep the title under 200 characters."),
+  date: z.iso.date("Pick a date."),
+  start: z.string().regex(HHMM, "Pick a start and end time."),
+  end: z.string().regex(HHMM, "Pick a start and end time."),
+  memberIds: z.array(z.string()).max(50, "Invite up to 50 people."),
+  guests: z.string().max(2000, "That guest list is too long."),
+  taskId: z.string().nullable(),
+})
+
+export async function createMeeting(
+  input: z.input<typeof meetingInput>
+): Promise<Result & { id?: string; warning?: string; needsGoogle?: true }> {
+  const me = await requireMember()
+  const parsed = meetingInput.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  const { title, date, start, end, memberIds, guests, taskId } = parsed.data
+
+  const zone = tz()
+  const slot = meetingSlot(date, start, end, zone)
+  if ("error" in slot) return slot
+  if (slot.startsAt.getTime() < Date.now() - 5 * 60_000) return { error: "Pick a time in the future." }
+
+  const ids = [...new Set(memberIds)]
+  const members = ids.length
+    ? await db
+        .select({ email: user.email })
+        .from(member)
+        .innerJoin(user, eq(user.id, member.userId))
+        .where(and(eq(member.organizationId, me.orgId), inArray(member.userId, ids)))
+    : []
+  if (members.length !== ids.length) return { error: "Someone you picked isn't in this workspace." }
+
+  const parsedGuests = parseEmails(guests)
+  if (parsedGuests.invalid.length) return { error: `Check these emails: ${parsedGuests.invalid.join(", ")}` }
+
+  // The organizer is stored as an attendee so "meetings I'm in" matches by email.
+  const myEmail = me.user.email.toLowerCase()
+  const emails = [...new Set([myEmail, ...members.map((m) => m.email.toLowerCase()), ...parsedGuests.emails])]
+  if (emails.length > 50) return { error: "Invite up to 50 people." }
+
+  const t = taskId ? await ownTask(me.orgId, taskId) : undefined
+  if (taskId && !t) return { error: "Task not found." }
+
+  const token = await googleToken(me.user.id)
+  if (!token) return { error: "Connect Google Calendar first.", needsGoogle: true }
+
+  const event = await createEvent(token, {
+    title,
+    description: t ? `From WeTrack: ${process.env.BETTER_AUTH_URL}/tasks/${t.id}` : "",
+    slot,
+    // Google adds the organizer itself.
+    emails: emails.filter((e) => e !== myEmail),
+    tz: zone,
+  })
+  if ("error" in event) return { error: event.error }
+
+  const [row] = await db
+    .insert(meeting)
+    .values({
+      organizationId: me.orgId,
+      taskId: t?.id ?? null,
+      createdById: me.user.id,
+      title,
+      ...slot,
+      attendeeEmails: emails,
+      googleEventId: event.id,
+      meetUrl: event.meetUrl,
+      calendarUrl: event.calendarUrl,
+    })
+    .returning()
+  if (t) await log(me.orgId, me.user.id, "meeting_scheduled", { projectId: t.projectId, taskId: t.id, data: { title } })
+
+  let warning: string | undefined
+  try {
+    await postSlack(me.orgId, slackCreated(row, me.user.name, zone))
+  } catch {
+    console.error("Slack post failed: meeting created")
+    warning = "Meeting created, but Slack didn't get it."
+  }
+  refresh()
+  return { id: row.id, warning }
+}
+
+export async function cancelMeeting(id: string): Promise<Result & { warning?: string }> {
+  const me = await requireMember()
+  const m = await db.query.meeting.findFirst({
+    where: and(eq(meeting.id, id), eq(meeting.organizationId, me.orgId), isNull(meeting.canceledAt)),
+  })
+  if (!m) return { error: "Meeting not found." }
+  if (m.createdById !== me.user.id && me.role === "member")
+    return { error: "Only the organizer or an admin can cancel." }
+
+  // The event lives on the creator's calendar, so only their token can delete it.
+  const token = m.createdById ? await googleToken(m.createdById) : null
+  const deleted = token ? await deleteEvent(token, m.googleEventId) : null
+  const warning = deleted && "ok" in deleted ? undefined : "Cancelled here. Delete it in Google Calendar too."
+
+  const done = await db
+    .update(meeting)
+    .set({ canceledAt: new Date() })
+    .where(and(eq(meeting.id, m.id), isNull(meeting.canceledAt)))
+    .returning({ id: meeting.id })
+  if (!done.length) return { error: "Meeting not found." }
+
+  try {
+    await postSlack(me.orgId, slackCancelled(m, me.user.name, tz()))
+  } catch {
+    console.error("Slack post failed: meeting cancelled")
+  }
+  refresh()
+  return { warning }
 }
 
 // ---------- Client updates ----------
