@@ -118,7 +118,7 @@ export function NewMeetingButton() {
     <Button
       variant="ghost"
       onClick={() => openNewMeeting()}
-      className="-my-2 -mr-3 h-10 rounded-full px-3 font-normal text-muted-foreground transition-[background-color,scale] active:scale-95"
+      className="-mx-3 -my-2 h-10 rounded-full px-3 font-normal text-muted-foreground transition-[background-color,scale] active:scale-95"
     >
       New meeting
     </Button>
