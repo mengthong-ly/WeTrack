@@ -1,4 +1,4 @@
-// Pure helpers behind the Tasks page views: URL params, deadline groups and the month grid.
+// Pure helpers behind the Tasks page views: URL params, deadline groups and month paging.
 // Dates are "YYYY-MM-DD" strings, months "YYYY-MM".
 
 export const TASK_VIEWS = ["date", "priority", "board", "calendar"] as const
@@ -74,14 +74,6 @@ export function dayLabel(day: string, today: string) {
 }
 
 const iso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10)
-
-// Every day shown on a Monday-first month grid: whole weeks covering the month.
-export function monthGrid(month: string) {
-  const [y, m] = month.split("-").map(Number)
-  const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7
-  const length = new Date(Date.UTC(y, m, 0)).getUTCDate()
-  return Array.from({ length: Math.ceil((lead + length) / 7) * 7 }, (_, i) => iso(y, m - 1, 1 - lead + i))
-}
 
 export function addMonths(month: string, n: number) {
   const [y, m] = month.split("-").map(Number)

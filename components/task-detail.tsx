@@ -357,6 +357,11 @@ function Subtasks({ taskId, subtasks }: { taskId: string; subtasks: TaskDetailDa
     }
   )
   const input = useRef<HTMLInputElement>(null)
+  // Titles added here. When the saved row (real id) replaces its optimistic "tmp-" row, it mounts in place
+  // instead of fading in while the tmp row fades out, which read as a flicker.
+  const [added, setAdded] = useState<string[]>([])
+  const enter = (s: { id: string; title: string }) =>
+    !s.id.startsWith("tmp-") && added.includes(s.title) ? false : { opacity: 0, y: 6 }
 
   const run = (fn: () => Promise<{ error?: string }>, optimistic: Parameters<typeof apply>[0]) =>
     start(async () => {
@@ -367,15 +372,16 @@ function Subtasks({ taskId, subtasks }: { taskId: string; subtasks: TaskDetailDa
 
   return (
     <div className="flex flex-col gap-2">
-      <ul className="flex flex-col gap-2">
-        <AnimatePresence initial={false}>
+      <ul className="relative flex flex-col gap-2">
+        <AnimatePresence mode="popLayout" initial={false}>
           {items.map((s) => (
             <motion.li
               key={s.id}
               layout
-              initial={{ opacity: 0, y: 6 }}
+              initial={enter(s)}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, height: 0 }}
+              // A tmp row is swapped for the saved one, so it leaves at once; real rows fade and shrink.
+              exit={s.id.startsWith("tmp-") ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
               transition={spring}
               className="group flex items-center gap-3 rounded-row bg-card px-4 py-3.5 shadow-sm"
             >
@@ -412,6 +418,7 @@ function Subtasks({ taskId, subtasks }: { taskId: string; subtasks: TaskDetailDa
           const title = String(form.get("title") ?? "").trim()
           if (!title) return
           input.current!.value = ""
+          setAdded((a) => [...a, title])
           run(() => addSubtask(taskId, title), { type: "add", title })
         }}
       >
