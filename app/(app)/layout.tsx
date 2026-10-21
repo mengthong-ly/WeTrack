@@ -3,6 +3,7 @@ import Link from "next/link"
 import { AppDock } from "@/components/app-dock"
 import { CommandMenu } from "@/components/command-menu"
 import { Logo } from "@/components/logo"
+import { NewMeetingDialog } from "@/components/new-meeting-dialog"
 import { UserMenu } from "@/components/user-menu"
 import { hasCalendar } from "@/lib/google"
 import { listMembers, listProjects, taskIndex } from "@/lib/queries"
@@ -18,6 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ])
   const projectsLite = projects.map(({ id, name, color }) => ({ id, name, color }))
   const membersLite = members.map(({ id, name, image }) => ({ id, name, image }))
+  const googleEnabled = !!process.env.GOOGLE_CLIENT_ID
 
   return (
     <>
@@ -31,7 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <UserMenu
               user={me.user}
               orgName={me.orgName}
-              googleEnabled={!!process.env.GOOGLE_CLIENT_ID}
+              googleEnabled={googleEnabled}
               calendarConnected={calendarConnected}
             />
           </div>
@@ -42,6 +44,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         projects={projectsLite}
         members={membersLite}
         meId={me.user.id}
+      />
+      <NewMeetingDialog
+        members={membersLite}
+        meId={me.user.id}
+        calendarConnected={calendarConnected}
+        googleEnabled={googleEnabled}
       />
     </>
   )

@@ -13,6 +13,7 @@ import {
   ShapesIcon,
   Trash2Icon,
   UsersIcon,
+  VideoIcon,
   XIcon,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
@@ -30,6 +31,7 @@ import {
 } from "@/app/actions"
 import { ProjectDot, UserAvatar } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
+import { openNewMeeting } from "@/components/new-meeting-dialog"
 import { Pick } from "@/components/pick"
 import { RichText } from "@/components/rich-text"
 import {
@@ -107,29 +109,34 @@ export function TaskDetail({
         <RoundButton aria-label="Back" onClick={() => router.back()}>
           <ArrowLeftIcon className="size-5" />
         </RoundButton>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="More actions"
-            className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card"
-          >
-            <MoreHorizontalIcon className="size-5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={async () => {
-                if (!confirm(`Delete “${task.title}”? This can't be undone.`)) return
-                const res = await deleteTask(task.id)
-                if (res.error) return toast.error(res.error)
-                toast.success("Task deleted")
-                router.push("/tasks")
-              }}
+        <div className="flex items-center gap-2">
+          <RoundButton aria-label="Schedule meeting" title="Schedule meeting" onClick={() => openNewMeeting({ title: task.title, taskId: task.id })}>
+            <VideoIcon className="size-5" />
+          </RoundButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="More actions"
+              className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card"
             >
-              <Trash2Icon />
-              Delete task
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <MoreHorizontalIcon className="size-5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={async () => {
+                  if (!confirm(`Delete “${task.title}”? This can't be undone.`)) return
+                  const res = await deleteTask(task.id)
+                  if (res.error) return toast.error(res.error)
+                  toast.success("Task deleted")
+                  router.push("/tasks")
+                }}
+              >
+                <Trash2Icon />
+                Delete task
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <EditableTitle value={task.title} onSave={(title) => save({ title })} />
@@ -272,7 +279,7 @@ function RoundButton(props: React.ComponentProps<"button">) {
     <button
       type="button"
       {...props}
-      className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card"
+      className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 outline-none backdrop-blur transition-[background-color,scale,box-shadow] hover:bg-card focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95"
     />
   )
 }

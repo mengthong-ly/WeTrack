@@ -25,7 +25,7 @@ import {
   workspaceIntegration,
 } from "@/lib/db/schema"
 import { createEvent, deleteEvent, googleToken } from "@/lib/google"
-import { meetingSlot, parseEmails, slackCancelled, slackCreated } from "@/lib/meetings"
+import { googleError, joinUrl, meetingSlot, parseEmails, slackCancelled, slackCreated } from "@/lib/meetings"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { postSlack, postToWebhook } from "@/lib/slack"
@@ -339,7 +339,7 @@ const meetingInput = z.object({
 
 export async function createMeeting(
   input: z.input<typeof meetingInput>
-): Promise<Result & { id?: string; warning?: string; needsGoogle?: true }> {
+): Promise<Result & { id?: string; joinUrl?: string | null; warning?: string; needsGoogle?: true }> {
   const me = await requireMember()
   const parsed = meetingInput.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -382,7 +382,7 @@ export async function createMeeting(
     emails: emails.filter((e) => e !== myEmail),
     tz: zone,
   })
-  if ("error" in event) return { error: event.error }
+  if ("error" in event) return event.error === googleError(401) ? { error: event.error, needsGoogle: true } : { error: event.error }
 
   const [row] = await db
     .insert(meeting)
@@ -408,7 +408,7 @@ export async function createMeeting(
     warning = "Meeting created, but Slack didn't get it."
   }
   refresh()
-  return { id: row.id, warning }
+  return { id: row.id, joinUrl: joinUrl(row), warning }
 }
 
 export async function cancelMeeting(id: string): Promise<Result & { warning?: string }> {
