@@ -7,6 +7,8 @@ on:
   workflow_dispatch:
 jobs:
   remind:
+    # Skipped (not failed) until the APP_URL variable is set.
+    if: ${{ vars.APP_URL != '' }}
     runs-on: ubuntu-latest
     steps:
       - run: curl -fsS -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ vars.APP_URL }}/api/cron/meetings"
