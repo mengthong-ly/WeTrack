@@ -65,15 +65,24 @@ test("slack text", () => {
     "📅 *Design review* · Wed 21 Oct, 14:00–14:30 · scheduled by Dara · <https://meet.google.com/abc-defg-hij|Join>",
   )
   assert.equal(
-    slackReminder(m(), TZ),
+    slackReminder(m(), TZ, at("2026-10-21T06:00:00Z")),
     "⏰ *Design review* starts in 1 hour (14:00) · <https://meet.google.com/abc-defg-hij|Join>",
+  )
+  assert.equal(
+    slackReminder(m(), TZ, at("2026-10-21T06:50:00Z")),
+    "⏰ *Design review* starts in 10 min (14:00) · <https://meet.google.com/abc-defg-hij|Join>",
+  )
+  // Never "0 min", even right at the start.
+  assert.equal(
+    slackReminder(m(), TZ, at("2026-10-21T07:00:00Z")),
+    "⏰ *Design review* starts in 1 min (14:00) · <https://meet.google.com/abc-defg-hij|Join>",
   )
   assert.equal(slackCancelled(m(), "Dara", TZ), "✖️ *Design review* on Wed 21 Oct, 14:00 was cancelled by Dara")
 })
 
 test("slack text escapes the title and drops Join without a link", () => {
   const bare = m({ title: "A & B <c>", meetUrl: null, calendarUrl: null })
-  assert.equal(slackReminder(bare, TZ), "⏰ *A &amp; B &lt;c&gt;* starts in 1 hour (14:00)")
+  assert.equal(slackReminder(bare, TZ, at("2026-10-21T06:00:00Z")), "⏰ *A &amp; B &lt;c&gt;* starts in 1 hour (14:00)")
 })
 
 test("googleError maps Google statuses to one line", () => {

@@ -120,8 +120,12 @@ const joinLink = (m: MeetingLike) => {
 export const slackCreated = (m: MeetingLike, by: string, tz: string) =>
   `📅 *${esc(m.title)}* · ${formatSlot(m, tz)} · scheduled by ${esc(by)}${joinLink(m)}`
 
-export const slackReminder = (m: MeetingLike, tz: string) =>
-  `⏰ *${esc(m.title)}* starts in 1 hour (${hhmm(m.startsAt, tz)})${joinLink(m)}`
+/** "starts in 1 hour" from the cron, "starts in N min" when it fires late or the meeting was booked inside the hour. */
+export function slackReminder(m: MeetingLike, tz: string, now: Date) {
+  const min = Math.max(1, Math.ceil((m.startsAt.getTime() - now.getTime()) / 60000))
+  const when = min === 60 ? "1 hour" : `${min} min`
+  return `⏰ *${esc(m.title)}* starts in ${when} (${hhmm(m.startsAt, tz)})${joinLink(m)}`
+}
 
 export const slackCancelled = (m: MeetingLike, by: string, tz: string) =>
   `✖️ *${esc(m.title)}* on ${day(m.startsAt, tz)}, ${hhmm(m.startsAt, tz)} was cancelled by ${esc(by)}`

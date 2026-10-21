@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     try {
       const meetUrl = m.meetUrl ?? (await fill(m))
       // "skipped" (no webhook) keeps the claim: nothing to retry.
-      await postSlack(m.organizationId, slackReminder({ ...m, meetUrl }, TZ))
+      await postSlack(m.organizationId, slackReminder({ ...m, meetUrl }, TZ, new Date()))
       reminded++
     } catch {
       console.error(`Reminder failed for meeting ${m.id}`)
