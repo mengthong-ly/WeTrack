@@ -2,7 +2,8 @@
 
 import { VideoIcon } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { useSyncExternalStore } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useSyncExternalStore } from "react"
 
 import { Button } from "@/components/ui/button"
 import { bannerState, joinUrl } from "@/lib/meetings"
@@ -35,9 +36,28 @@ function subscribe(onChange: () => void) {
 }
 const useNow = () => useSyncExternalStore(subscribe, () => now, () => null)
 
+// The layout's meeting list isn't re-fetched on client navigation, so pull fresh server data
+// every 5 minutes while the tab is visible, and once when it becomes visible again.
+const REFRESH = 5 * 60_000
+function useServerRefresh() {
+  const router = useRouter()
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") router.refresh()
+    }
+    const id = setInterval(refresh, REFRESH)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener("visibilitychange", refresh)
+    }
+  }, [router])
+}
+
 /** "Design review starts in 45 min · Join", from an hour before until the meeting ends. */
 export function MeetingBanner({ meetings }: { meetings: BannerMeeting[] }) {
   const t = useNow()
+  useServerRefresh()
   const reduce = useReducedMotion()
   const due =
     t === null
