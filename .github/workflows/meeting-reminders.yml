@@ -1,0 +1,12 @@
+# Use only on Vercel Hobby, which can't run a */5 cron. On Pro, vercel.ts already schedules this.
+# Needs the CRON_SECRET secret and the APP_URL variable (e.g. https://wetrack.example.com).
+name: Meeting reminders
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ vars.APP_URL }}/api/cron/meetings"
