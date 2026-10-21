@@ -25,7 +25,15 @@ import {
   workspaceIntegration,
 } from "@/lib/db/schema"
 import { createEvent, deleteEvent, googleToken } from "@/lib/google"
-import { googleError, joinUrl, meetingSlot, parseEmails, slackCancelled, slackCreated } from "@/lib/meetings"
+import {
+  googleError,
+  joinUrl,
+  LEAD_MINUTES,
+  meetingSlot,
+  parseEmails,
+  slackCancelled,
+  slackCreated,
+} from "@/lib/meetings"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { postSlack, postToWebhook } from "@/lib/slack"
@@ -325,7 +333,7 @@ export async function setSlackWebhook(url: string | null): Promise<Result> {
 // ---------- Meetings ----------
 
 const tz = () => process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh"
-const HHMM = /^\d{2}:\d{2}$/
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
 const meetingInput = z.object({
   title: z.string().trim().min(1, "Give the meeting a title.").max(200, "Keep the title under 200 characters."),
@@ -382,23 +390,48 @@ export async function createMeeting(
     emails: emails.filter((e) => e !== myEmail),
     tz: zone,
   })
-  if ("error" in event) return event.error === googleError(401) ? { error: event.error, needsGoogle: true } : { error: event.error }
+  if ("error" in event) {
+    // 401 and 403 both mean the grant is gone or too narrow: reconnecting fixes it.
+    const reconnect = event.error === googleError(401) || event.error === googleError(403)
+    return reconnect ? { error: event.error, needsGoogle: true } : { error: event.error }
+  }
 
-  const [row] = await db
-    .insert(meeting)
-    .values({
-      organizationId: me.orgId,
-      taskId: t?.id ?? null,
-      createdById: me.user.id,
-      title,
-      ...slot,
-      attendeeEmails: emails,
-      googleEventId: event.id,
-      meetUrl: event.meetUrl,
-      calendarUrl: event.calendarUrl,
+  // Google has already emailed the invites, so a failed save must take the event back out.
+  let row: typeof meeting.$inferSelect
+  try {
+    row = await db.transaction(async (tx) => {
+      const [r] = await tx
+        .insert(meeting)
+        .values({
+          organizationId: me.orgId,
+          taskId: t?.id ?? null,
+          createdById: me.user.id,
+          title,
+          ...slot,
+          attendeeEmails: emails,
+          googleEventId: event.id,
+          meetUrl: event.meetUrl,
+          calendarUrl: event.calendarUrl,
+          // Inside the reminder window the create post below already tells Slack, so the cron skips it.
+          remindedAt: slot.startsAt.getTime() - Date.now() <= LEAD_MINUTES * 60_000 ? new Date() : null,
+        })
+        .returning()
+      if (t)
+        await tx.insert(activity).values({
+          organizationId: me.orgId,
+          actorId: me.user.id,
+          kind: "meeting_scheduled",
+          projectId: t.projectId,
+          taskId: t.id,
+          data: { title },
+        })
+      return r
     })
-    .returning()
-  if (t) await log(me.orgId, me.user.id, "meeting_scheduled", { projectId: t.projectId, taskId: t.id, data: { title } })
+  } catch {
+    console.error("Meeting save failed: removing the Google event")
+    await deleteEvent(token, event.id)
+    return { error: "Couldn't save the meeting. Try again." }
+  }
 
   let warning: string | undefined
   try {
@@ -423,7 +456,18 @@ export async function cancelMeeting(id: string): Promise<Result & { warning?: st
   // The event lives on the creator's calendar, so only their token can delete it.
   const token = m.createdById ? await googleToken(m.createdById) : null
   const deleted = token ? await deleteEvent(token, m.googleEventId) : null
-  const warning = deleted && "ok" in deleted ? undefined : "Cancelled here. Delete it in Google Calendar too."
+  let warning: string | undefined
+  if (!deleted || "error" in deleted) {
+    if (m.createdById === me.user.id) {
+      warning = "Cancelled in WeTrack. Delete it in Google Calendar too so guests are told."
+    } else {
+      const creator = m.createdById
+        ? await db.query.user.findFirst({ columns: { name: true }, where: eq(user.id, m.createdById) })
+        : undefined
+      const first = creator?.name.split(" ")[0] || "the organizer"
+      warning = `Cancelled in WeTrack. Ask ${first} to delete it in Google Calendar so guests are told.`
+    }
+  }
 
   const done = await db
     .update(meeting)

@@ -58,6 +58,8 @@ function call(token: string, url: string, init: RequestInit = {}) {
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     cache: "no-store",
+    // A hung Google call aborts and lands in the callers' network-error catch.
+    signal: AbortSignal.timeout(10_000),
   })
 }
 
