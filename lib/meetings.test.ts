@@ -4,6 +4,7 @@ import { test } from "node:test"
 import {
   bannerState,
   CALENDAR_SCOPE,
+  canJoin,
   googleError,
   joinUrl,
   meetingSlot,
@@ -80,4 +81,16 @@ test("googleError maps Google statuses to one line", () => {
   assert.equal(googleError(403), "Google Calendar refused. Check the calendar permission and connect again.")
   assert.equal(googleError(500), "Google Calendar didn't accept the meeting. Try again.")
   assert.equal(CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.events.owned")
+})
+
+test("canJoin: invitees, creator, owners and admins; share sees all", () => {
+  const m = { createdById: "u-1", attendeeEmails: ["dara@x.test"] }
+  const member = (userId: string, email: string) => ({ userId, email, role: "member" })
+  assert.equal(canJoin(m, member("u-2", "dara@x.test")), true)
+  assert.equal(canJoin(m, member("u-2", "Dara@X.test")), true)
+  assert.equal(canJoin(m, member("u-1", "creator@x.test")), true)
+  assert.equal(canJoin(m, { userId: "u-3", email: "a@x.test", role: "admin" }), true)
+  assert.equal(canJoin(m, { userId: "u-4", email: "o@x.test", role: "owner" }), true)
+  assert.equal(canJoin(m, member("u-5", "sok@x.test")), false)
+  assert.equal(canJoin(m, "share"), true)
 })

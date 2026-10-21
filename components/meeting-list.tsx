@@ -33,7 +33,7 @@ export function MeetingList({
   const [, start] = useTransition()
 
   const cancel = (m: MeetingItem) => {
-    if (!confirm("Cancel this meeting? Guests get a cancellation email.")) return
+    if (!confirm("Cancel this meeting?")) return
     start(async () => {
       remove(m.id)
       const res = await cancelMeeting(m.id)

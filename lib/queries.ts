@@ -16,7 +16,7 @@ import {
   task,
   user,
 } from "@/lib/db/schema"
-import { formatSlot, joinUrl } from "@/lib/meetings"
+import { canJoin, formatSlot, joinUrl, type Viewer } from "@/lib/meetings"
 
 export function listProjects(orgId: string) {
   return db.query.project.findMany({
@@ -217,7 +217,7 @@ export function taskMeetings(orgId: string, taskId: string): Promise<MeetingRow[
   return liveMeetings(orgId, eq(meeting.taskId, taskId))
 }
 
-/** What `MeetingList` renders. Built on the server so guest emails and the time zone stay here. */
+/** What `MeetingList` renders. Built on the server so guest emails, the time zone and the Join rule stay here. */
 export type MeetingItem = {
   id: string
   title: string
@@ -231,32 +231,33 @@ export type MeetingItem = {
 export function meetingItems(
   rows: MeetingRow[],
   members: { id: string; name: string; email: string; image: string | null }[],
-  me?: { userId: string; role: string }
+  viewer: Viewer
 ): MeetingItem[] {
   const tz = process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh"
   return rows.map((m) => ({
     id: m.id,
     title: m.title,
     slot: formatSlot(m, tz),
-    joinUrl: joinUrl(m),
+    joinUrl: canJoin(m, viewer) ? joinUrl(m) : null,
     task: m.task,
     people: members
       .filter((p) => p.id === m.createdById || m.attendeeEmails.includes(p.email.toLowerCase()))
       .map(({ id, name, image }) => ({ id, name, image })),
     // Same rule as cancelMeeting; the server re-checks.
-    canCancel: !!me && (m.createdById === me.userId || me.role !== "member"),
+    canCancel: viewer !== "share" && (m.createdById === viewer.userId || viewer.role !== "member"),
   }))
 }
 
 /** Dates as ISO strings for the client `MeetingBanner`. */
-export function bannerMeetings(rows: MeetingRow[]) {
+export function bannerMeetings(rows: MeetingRow[], viewer: Viewer) {
   return rows.map((m) => ({
     id: m.id,
     title: m.title,
     startsAt: m.startsAt.toISOString(),
     endsAt: m.endsAt.toISOString(),
-    meetUrl: m.meetUrl,
-    calendarUrl: m.calendarUrl,
+    // No link means no Join button.
+    meetUrl: canJoin(m, viewer) ? m.meetUrl : null,
+    calendarUrl: canJoin(m, viewer) ? m.calendarUrl : null,
     canceledAt: m.canceledAt?.toISOString() ?? null,
   }))
 }

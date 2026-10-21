@@ -91,7 +91,7 @@ export default async function HomePage() {
               <NewMeetingButton />
             </div>
             <MeetingList
-              meetings={meetingItems(meetings, members, { userId: me.user.id, role: me.role })}
+              meetings={meetingItems(meetings, members, { userId: me.user.id, email: me.user.email, role: me.role })}
               empty={<Empty>No meetings in the next 7 days. Schedule one from a task or press ⌘K.</Empty>}
             />
           </Reveal>

@@ -62,6 +62,18 @@ export function bannerState(
 
 export const joinUrl = (m: MeetingLike) => m.meetUrl ?? m.calendarUrl
 
+export type Viewer = { userId: string; email: string; role: string } | "share"
+
+/** Who gets a Join link: invitees, the creator, owners and admins. The CEO share page sees all. */
+export function canJoin(m: { createdById: string | null; attendeeEmails: string[] }, viewer: Viewer): boolean {
+  if (viewer === "share") return true
+  return (
+    viewer.role !== "member" ||
+    m.createdById === viewer.userId ||
+    m.attendeeEmails.includes(viewer.email.toLowerCase())
+  )
+}
+
 const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
 
 export function parseEmails(raw: string): { emails: string[]; invalid: string[] } {

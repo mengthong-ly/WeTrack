@@ -104,7 +104,7 @@ export default async function SharedDashboard({
         </span>
       </header>
       {/* The 7-day list covers the banner's 1-hour window, so one query feeds both. */}
-      <MeetingBanner meetings={bannerMeetings(meetings)} />
+      <MeetingBanner meetings={bannerMeetings(meetings, "share")} />
 
       <div className="flex flex-col gap-8">
         <Reveal>
@@ -220,7 +220,7 @@ export default async function SharedDashboard({
               <h2 className="mb-4 text-lg">Upcoming meetings</h2>
               <MeetingList
                 readOnly
-                meetings={meetingItems(meetings, members)}
+                meetings={meetingItems(meetings, members, "share")}
                 empty={<p className="text-sm text-muted-foreground">No meetings in the next 7 days.</p>}
               />
             </Reveal>

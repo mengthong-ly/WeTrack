@@ -55,7 +55,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
         projects={projects.map(({ id, name, color }) => ({ id, name, color }))}
         members={members.map(({ id, name, image }) => ({ id, name, image }))}
         // Every row is this task's, so drop the task line.
-        meetings={meetingItems(meetings, members, { userId: me.user.id, role: me.role }).map((m) => ({ ...m, task: null }))}
+        meetings={meetingItems(meetings, members, { userId: me.user.id, email: me.user.email, role: me.role }).map((m) => ({ ...m, task: null }))}
       />
     </Reveal>
   )

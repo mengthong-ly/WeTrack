@@ -40,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           </div>
         </header>
-        <MeetingBanner meetings={bannerMeetings(soon)} />
+        <MeetingBanner meetings={bannerMeetings(soon, { userId: me.user.id, email: me.user.email, role: me.role })} />
         {children}
       </div>
       <AppDock
