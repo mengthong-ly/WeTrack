@@ -3,6 +3,8 @@ import { test } from "node:test"
 
 import {
   bannerState,
+  CALENDAR_SCOPE,
+  googleError,
   joinUrl,
   meetingSlot,
   parseEmails,
@@ -71,4 +73,11 @@ test("slack text", () => {
 test("slack text escapes the title and drops Join without a link", () => {
   const bare = m({ title: "A & B <c>", meetUrl: null, calendarUrl: null })
   assert.equal(slackReminder(bare, TZ), "⏰ *A &amp; B &lt;c&gt;* starts in 1 hour (14:00)")
+})
+
+test("googleError maps Google statuses to one line", () => {
+  assert.equal(googleError(401), "Connect Google Calendar again.")
+  assert.equal(googleError(403), "Google Calendar refused. Check the calendar permission and connect again.")
+  assert.equal(googleError(500), "Google Calendar didn't accept the meeting. Try again.")
+  assert.equal(CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.events.owned")
 })

@@ -3,6 +3,15 @@
 
 export const LEAD_MINUTES = 60
 
+// Events on calendars the user owns: narrower than full calendar access (no settings or sharing).
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned"
+
+export function googleError(status: number): string {
+  if (status === 401) return "Connect Google Calendar again."
+  if (status === 403) return "Google Calendar refused. Check the calendar permission and connect again."
+  return "Google Calendar didn't accept the meeting. Try again."
+}
+
 export type Slot = { startsAt: Date; endsAt: Date }
 
 export type MeetingLike = {
