@@ -30,7 +30,8 @@ const field = "h-9 flex-1 rounded-full border-0 bg-transparent px-2.5 shadow-non
 
 const toMin = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
 const toHHMM = (min: number) => {
-  const m = Math.min(min, 23 * 60 + 59) // a meeting ends on the day it starts
+  // A meeting ends on the day it starts; 23:55 is the last 5-minute step (`step={300}`).
+  const m = Math.max(0, Math.min(min, 23 * 60 + 55))
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
 }
 
@@ -155,7 +156,8 @@ function MeetingForm({
 
   // Moving the start keeps the meeting's length.
   function onStart(next: string) {
-    if (next && startAt && endAt) setEndAt(toHHMM(toMin(next) + toMin(endAt) - toMin(startAt)))
+    const length = startAt && endAt ? toMin(endAt) - toMin(startAt) : 0
+    if (next && length > 0) setEndAt(toHHMM(toMin(next) + length))
     setStartAt(next)
   }
 
