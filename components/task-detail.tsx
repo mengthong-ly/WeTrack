@@ -30,6 +30,7 @@ import {
   updateTask,
 } from "@/app/actions"
 import { ProjectDot, UserAvatar } from "@/components/bits"
+import { MeetingList } from "@/components/meeting-list"
 import { spring } from "@/components/motion-bits"
 import { openNewMeeting } from "@/components/new-meeting-dialog"
 import { Pick } from "@/components/pick"
@@ -52,6 +53,7 @@ import {
   typeOptions,
   UNASSIGNED,
 } from "@/lib/options"
+import type { MeetingItem } from "@/lib/queries"
 import type { Health, ReleaseStage } from "@/lib/schedule"
 import { cn } from "@/lib/utils"
 
@@ -95,10 +97,12 @@ export function TaskDetail({
   task,
   projects,
   members,
+  meetings,
 }: {
   task: TaskDetailData
   projects: ProjectLite[]
   members: MemberLite[]
+  meetings: MeetingItem[]
 }) {
   const router = useRouter()
   const save = useSave(task.id)
@@ -243,6 +247,15 @@ export function TaskDetail({
           )}
         </Row>
       </dl>
+
+      {meetings.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg">Meetings</h2>
+          <div className="rounded-panel bg-card p-2 shadow-sm">
+            <MeetingList meetings={meetings} />
+          </div>
+        </section>
+      )}
 
       <Tabs defaultValue="subtasks" className="gap-4">
         <TabsList className="h-12 w-full rounded-full bg-card/70 p-1 ring-1 ring-foreground/5 sm:w-fit">

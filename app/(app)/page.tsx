@@ -2,6 +2,7 @@ import { AlertTriangleIcon, CheckCircle2Icon, ClockIcon, InboxIcon } from "lucid
 import Link from "next/link"
 
 import { AttentionList } from "@/components/attention-list"
+import { MeetingList, NewMeetingButton } from "@/components/meeting-list"
 import { Reveal } from "@/components/motion-bits"
 import { ProjectHealthList } from "@/components/project-health-list"
 import { StatTile } from "@/components/stat-tile"
@@ -9,7 +10,7 @@ import { TaskList } from "@/components/task-card"
 import { describeActivity } from "@/lib/activity-text"
 import { needsAttention, projectProgress, summarize } from "@/lib/dashboard"
 import { HEALTH, STATUS } from "@/lib/labels"
-import { listProjects, listTasks, recentActivity } from "@/lib/queries"
+import { listMembers, listProjects, listTasks, meetingItems, recentActivity, upcomingMeetings } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { toCard } from "@/lib/task-view"
@@ -18,10 +19,12 @@ import { ago, greeting, longDate } from "@/lib/time"
 export default async function HomePage() {
   const me = await requireMember()
   const today = todayISO()
-  const [tasks, projects, activity] = await Promise.all([
+  const [tasks, projects, activity, meetings, members] = await Promise.all([
     listTasks(me.orgId),
     listProjects(me.orgId),
     recentActivity(me.orgId),
+    upcomingMeetings(me.orgId),
+    listMembers(me.orgId),
   ])
 
   const s = summarize(tasks, today)
@@ -83,6 +86,17 @@ export default async function HomePage() {
 
         <div className="flex flex-col gap-6">
           <Reveal index={6} className="rounded-sheet bg-card p-6 shadow-sm">
+            <div className="mb-4 flex items-baseline justify-between">
+              <h2 className="text-lg">Upcoming meetings</h2>
+              <NewMeetingButton />
+            </div>
+            <MeetingList
+              meetings={meetingItems(meetings, members, { userId: me.user.id, role: me.role })}
+              empty={<Empty>No meetings in the next 7 days. Schedule one from a task or press ⌘K.</Empty>}
+            />
+          </Reveal>
+
+          <Reveal index={7} className="rounded-sheet bg-card p-6 shadow-sm">
             <h2 className="flex items-baseline justify-between text-lg">
               Needs attention
               <span className="tabular text-sm text-muted-foreground">{attention.length}</span>
@@ -90,7 +104,7 @@ export default async function HomePage() {
             <AttentionList items={attention} href={(id) => `/tasks/${id}`} />
           </Reveal>
 
-          <Reveal index={7} className="rounded-sheet bg-card p-6 shadow-sm">
+          <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg">Projects</h2>
               <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">All</Link>
@@ -98,7 +112,7 @@ export default async function HomePage() {
             <ProjectHealthList projects={projectStats} href={(id) => `/tasks?project=${id}`} />
           </Reveal>
 
-          <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
+          <Reveal index={9} className="rounded-sheet bg-card p-6 shadow-sm">
             <h2 className="text-lg">Recent activity</h2>
             <ul className="mt-4 flex flex-col gap-3.5">
               {activity.map((a) => (

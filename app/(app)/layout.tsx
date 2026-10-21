@@ -3,19 +3,21 @@ import Link from "next/link"
 import { AppDock } from "@/components/app-dock"
 import { CommandMenu } from "@/components/command-menu"
 import { Logo } from "@/components/logo"
+import { MeetingBanner } from "@/components/meeting-banner"
 import { NewMeetingDialog } from "@/components/new-meeting-dialog"
 import { UserMenu } from "@/components/user-menu"
 import { hasCalendar } from "@/lib/google"
-import { listMembers, listProjects, taskIndex } from "@/lib/queries"
+import { bannerMeetings, listMembers, listProjects, taskIndex, upcomingMeetings } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const me = await requireMember()
-  const [projects, members, tasks, calendarConnected] = await Promise.all([
+  const [projects, members, tasks, calendarConnected, soon] = await Promise.all([
     listProjects(me.orgId),
     listMembers(me.orgId),
     taskIndex(me.orgId),
     hasCalendar(me.user.id),
+    upcomingMeetings(me.orgId, { email: me.user.email, userId: me.user.id, days: 1 }),
   ])
   const projectsLite = projects.map(({ id, name, color }) => ({ id, name, color }))
   const membersLite = members.map(({ id, name, image }) => ({ id, name, image }))
@@ -38,6 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           </div>
         </header>
+        <MeetingBanner meetings={bannerMeetings(soon)} />
         {children}
       </div>
       <AppDock

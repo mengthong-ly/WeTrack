@@ -16,6 +16,7 @@ import {
   task,
   user,
 } from "@/lib/db/schema"
+import { formatSlot, joinUrl } from "@/lib/meetings"
 
 export function listProjects(orgId: string) {
   return db.query.project.findMany({
@@ -214,4 +215,48 @@ export function upcomingMeetings(
 
 export function taskMeetings(orgId: string, taskId: string): Promise<MeetingRow[]> {
   return liveMeetings(orgId, eq(meeting.taskId, taskId))
+}
+
+/** What `MeetingList` renders. Built on the server so guest emails and the time zone stay here. */
+export type MeetingItem = {
+  id: string
+  title: string
+  slot: string
+  joinUrl: string | null
+  task: { id: string; title: string } | null
+  people: { id: string; name: string; image: string | null }[]
+  canCancel: boolean
+}
+
+export function meetingItems(
+  rows: MeetingRow[],
+  members: { id: string; name: string; email: string; image: string | null }[],
+  me?: { userId: string; role: string }
+): MeetingItem[] {
+  const tz = process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh"
+  return rows.map((m) => ({
+    id: m.id,
+    title: m.title,
+    slot: formatSlot(m, tz),
+    joinUrl: joinUrl(m),
+    task: m.task,
+    people: members
+      .filter((p) => p.id === m.createdById || m.attendeeEmails.includes(p.email.toLowerCase()))
+      .map(({ id, name, image }) => ({ id, name, image })),
+    // Same rule as cancelMeeting; the server re-checks.
+    canCancel: !!me && (m.createdById === me.userId || me.role !== "member"),
+  }))
+}
+
+/** Dates as ISO strings for the client `MeetingBanner`. */
+export function bannerMeetings(rows: MeetingRow[]) {
+  return rows.map((m) => ({
+    id: m.id,
+    title: m.title,
+    startsAt: m.startsAt.toISOString(),
+    endsAt: m.endsAt.toISOString(),
+    meetUrl: m.meetUrl,
+    calendarUrl: m.calendarUrl,
+    canceledAt: m.canceledAt?.toISOString() ?? null,
+  }))
 }

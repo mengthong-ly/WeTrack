@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 
 import { Reveal } from "@/components/motion-bits"
 import { TaskDetail } from "@/components/task-detail"
-import { getTask, listMembers, listProjects } from "@/lib/queries"
+import { getTask, listMembers, listProjects, meetingItems, taskMeetings } from "@/lib/queries"
 import { daysLeft, health, releaseStage, todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 
@@ -16,10 +16,11 @@ export async function generateMetadata({ params }: PageProps<"/tasks/[id]">): Pr
 export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
   const me = await requireMember()
   const { id } = await params
-  const [task, projects, members] = await Promise.all([
+  const [task, projects, members, meetings] = await Promise.all([
     getTask(me.orgId, id),
     listProjects(me.orgId),
     listMembers(me.orgId),
+    taskMeetings(me.orgId, id),
   ])
   if (!task) notFound()
   const today = todayISO()
@@ -53,6 +54,8 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
         }}
         projects={projects.map(({ id, name, color }) => ({ id, name, color }))}
         members={members.map(({ id, name, image }) => ({ id, name, image }))}
+        // Every row is this task's, so drop the task line.
+        meetings={meetingItems(meetings, members, { userId: me.user.id, role: me.role }).map((m) => ({ ...m, task: null }))}
       />
     </Reveal>
   )
