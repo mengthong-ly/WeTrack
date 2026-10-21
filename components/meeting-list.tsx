@@ -115,12 +115,12 @@ export function MeetingList({
 
 export function NewMeetingButton() {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       onClick={() => openNewMeeting()}
-      className="rounded-full text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="-my-2 -mr-3 h-10 rounded-full px-3 font-normal text-muted-foreground transition-[background-color,scale] active:scale-95"
     >
       New meeting
-    </button>
+    </Button>
   )
 }

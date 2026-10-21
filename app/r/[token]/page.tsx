@@ -216,7 +216,7 @@ export default async function SharedDashboard({
               <AttentionList items={attention} />
             </Reveal>
 
-            <Reveal index={7} className="rounded-sheet bg-card p-6 shadow-sm">
+            <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
               <h2 className="mb-4 text-lg">Upcoming meetings</h2>
               <MeetingList
                 readOnly
@@ -226,7 +226,7 @@ export default async function SharedDashboard({
             </Reveal>
 
             <Reveal
-              index={7}
+              index={9}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Upcoming deadlines</h2>
@@ -263,7 +263,7 @@ export default async function SharedDashboard({
               </ul>
             </Reveal>
 
-            <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
+            <Reveal index={10} className="rounded-sheet bg-card p-6 shadow-sm">
               <h2 className="flex items-baseline justify-between text-lg">
                 Done this week
                 <span className="tabular text-sm text-muted-foreground">{shipped.length}</span>
@@ -292,7 +292,7 @@ export default async function SharedDashboard({
             </Reveal>
 
             <Reveal
-              index={9}
+              index={11}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Projects</h2>
@@ -300,7 +300,7 @@ export default async function SharedDashboard({
             </Reveal>
 
             <Reveal
-              index={10}
+              index={12}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Recent activity</h2>
