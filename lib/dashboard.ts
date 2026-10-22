@@ -32,10 +32,12 @@ export function summarize(tasks: TaskRow[], today: string) {
   }
 }
 
+// Projects with no tasks are left out unless `keepEmpty` (the 3D workspace shows new, empty projects).
 export function projectProgress(
   projects: { id: string; name: string; color: string }[],
   tasks: TaskRow[],
-  today: string
+  today: string,
+  { keepEmpty = false } = {}
 ) {
   return projects
     .map((p) => {
@@ -56,7 +58,7 @@ export function projectProgress(
         progress,
       }
     })
-    .filter((p) => p.total > 0)
+    .filter((p) => keepEmpty || p.total > 0)
     .sort((a, b) => b.open - a.open)
 }
 

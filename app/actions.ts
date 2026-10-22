@@ -127,10 +127,32 @@ export async function createProject(input: z.input<typeof projectInput>): Promis
   return {}
 }
 
+// Rename or recolour; either field may be left out.
+const projectPatch = projectInput.partial()
+
+export async function updateProject(projectId: string, patch: z.input<typeof projectPatch>): Promise<Result> {
+  const me = await requireMember()
+  const parsed = projectPatch.safeParse(patch)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  if (!(await ownProject(me.orgId, projectId))) return { error: "Project not found." }
+  if (!Object.keys(parsed.data).length) return {}
+  await db.update(project).set(parsed.data).where(eq(project.id, projectId))
+  refresh()
+  return {}
+}
+
 export async function archiveProject(projectId: string): Promise<Result> {
+  return setArchived(projectId, true)
+}
+
+export async function restoreProject(projectId: string): Promise<Result> {
+  return setArchived(projectId, false)
+}
+
+async function setArchived(projectId: string, archived: boolean): Promise<Result> {
   const me = await requireMember()
   if (!(await ownProject(me.orgId, projectId))) return { error: "Project not found." }
-  await db.update(project).set({ archived: true }).where(eq(project.id, projectId))
+  await db.update(project).set({ archived }).where(eq(project.id, projectId))
   refresh()
   return {}
 }
