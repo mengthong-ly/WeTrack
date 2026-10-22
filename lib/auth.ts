@@ -23,7 +23,7 @@ export const auth = betterAuth({
     sendOnSignIn: true,
     autoSignInAfterVerification: true,
     async sendVerificationEmail({ user, url }) {
-      await sendEmail(user.email, "Confirm your email for WeTrack", `Confirm your email to start using WeTrack:\n\n${url}`)
+      await sendEmail(user.email, "Confirm your email for WeTrack", `Confirm your email to start using WeTrack:\n\n${url}\n\nIf you didn't sign up, ignore this email.`)
     },
   },
   socialProviders: google && { google },
@@ -33,6 +33,10 @@ export const auth = betterAuth({
   plugins: [
     organization({
       requireEmailVerificationOnInvitation: true,
+      // Open sign-up means anyone can send invite emails from us: one workspace per person (the app
+      // only uses the first anyway) and at most 20 pending invites per workspace.
+      organizationLimit: 1,
+      invitationLimit: 20,
       async sendInvitationEmail(data) {
         await sendEmail(
           data.email,
