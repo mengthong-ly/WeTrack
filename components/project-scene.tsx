@@ -6,6 +6,8 @@ import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"
 
 import { PillTabs } from "@/components/pill-tabs"
 import { Button } from "@/components/ui/button"
@@ -16,16 +18,16 @@ import type { SceneData } from "@/lib/scene"
 import { cn } from "@/lib/utils"
 
 /**
- * The 3D overview: the workspace drawn as an isometric hairline figure you can spin and zoom.
+ * The 3D overview: the workspace built as a machine you can spin and zoom, in the Agentic
+ * Factory scene's finishes (steel, ivory, copper, amber glow, real lights and shadows).
  * Three views of the same work:
- * - Hub: the workspace in the middle, a tile per project around it. The tile nearest the
- *   pointer rises and its link turns solid; its neighbours rise less (hairline's Hub, in 3D).
- * - Flow: a platform per status with a cube per task, and one real task walking the line.
- * - Team: a tower per person, one slab per open task.
- * Five cameras (Overview, Side, Top, Focus, Flight) and play/pause, after the Agentic Factory
- * scene. Click anything to focus it. Lines and plates read the theme tokens; status and health
- * colours come from lib/labels.ts. hairline's own Hub (components/ui/hub) is the poster while
- * the scene loads, the fallback without WebGL, and the empty state.
+ * - Hub: the workspace core, a station per project around it on copper lines. The station
+ *   nearest the pointer rises and its line glows; its neighbours rise less (hairline's Hub, in 3D).
+ * - Flow: a station per status with a block per task, and one real task riding a belt.
+ * - Team: a station per person, one block per open task.
+ * Five cameras (Overview, Side, Top, Focus, Flight) and play/pause. Click anything to focus it.
+ * Status and health colours come from lib/labels.ts. hairline's own Hub (components/ui/hub) is
+ * the poster while the scene loads, the fallback without WebGL, and the empty state.
  */
 
 type Mode = "hub" | "flow" | "team"
@@ -62,7 +64,7 @@ export function ProjectScene({
   data: SceneData
   /** With `linked`, the focus card opens the project, task or person. */
   linked?: boolean
-  /** The surface behind the scene, so plates hide the lines behind them. */
+  /** The surface behind the scene; the hairline poster's plates match it. */
   surface?: "card" | "background"
   className?: string
 }) {
@@ -86,7 +88,7 @@ export function ProjectScene({
   useEffect(() => {
     const root = rootRef.current
     if (!root || empty) return
-    api.current = mountScene(root, data, surface, {
+    api.current = mountScene(root, data, {
       onReady: () => setState("ready"),
       onFail: () => setState("failed"),
       onSelect: (s) => {
@@ -99,7 +101,7 @@ export function ProjectScene({
       api.current?.dispose()
       api.current = null
     }
-  }, [data, surface, empty])
+  }, [data, empty])
   useEffect(() => {
     api.current?.set({ mode, cam, playing })
   }, [mode, cam, playing, state])
@@ -243,23 +245,24 @@ export function ProjectScene({
 
 type Palette = ReturnType<typeof readPalette>
 type Tone = (p: Palette) => THREE.Color
+type Std = THREE.MeshStandardMaterial
 
 type Item = {
   obj: THREE.Object3D
   y: number
   lift: number
-  edge: THREE.LineBasicMaterial
-  tone: Tone
+  glow: Std // lit on hover and focus, like the factory's station strips
+  rest: number
   tip: [string, string]
   top: number
   href: string | null
   cell?: [number, number]
-  link?: THREE.LineDashedMaterial
+  link?: Std
 }
 
 type Layer = {
   group: THREE.Group
-  mats: { m: THREE.Material; base: number }[]
+  mats: THREE.Material[]
   items: Item[]
   labels: { el: HTMLElement; obj: THREE.Object3D; at: THREE.Vector3 }[]
   weight: number
@@ -276,8 +279,28 @@ const LANES: { status: TaskStatus; x: number; z: number }[] = [
 // Hub tiles fill the 3×3 grid around the hub, front (towards the camera) first.
 const CELLS: [number, number][] = [[1, 1], [0, 1], [1, 0], [-1, 1], [1, -1], [-1, 0], [0, -1], [-1, -1]]
 const PITCH = 2.7
+const TAU = Math.PI * 2
+const DECK = 0.235 // top of the deck every view stands on
+const BELT_Z = 1.8
+const CENTER_Y = 0.7
 
-function readPalette(root: HTMLElement, surface: "card" | "background") {
+// The Agentic Factory's finishes, [colour, metalness, roughness]. A fixed material palette, like a
+// brand mark (see DESIGN.md); meaning (status, health) still comes from lib/labels.ts.
+const FINISH = {
+  body: [0x30363f, 0.75, 0.29],
+  base: [0x292f37, 0.85, 0.32],
+  edge: [0x707986, 0.85, 0.24],
+  chrome: [0xc3cad0, 0.92, 0.18],
+  dark: [0x12171d, 0.45, 0.38],
+  rubber: [0x0b1015, 0.1, 0.6],
+  amber: [0xff7a1a, 0.52, 0.28],
+  ivory: [0xe0ded4, 0.48, 0.26],
+  copper: [0xc57e45, 0.85, 0.3],
+} as const
+const AMBER = 0xff7a1a
+const WARM_WHITE = 0xfff3d7
+
+function readPalette(root: HTMLElement) {
   const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!
   // The canvas resolves any CSS colour (oklch included) to sRGB.
   const toColor = (css: string) => {
@@ -295,11 +318,7 @@ function readPalette(root: HTMLElement, surface: "card" | "background") {
     probe.className = className
     return toColor(getComputedStyle(probe).color)
   }
-  const css = (name: string) => toColor(getComputedStyle(root).getPropertyValue(name).trim())
   const palette = {
-    fg: css("--foreground"),
-    muted: css("--muted-foreground"),
-    plate: css(surface === "card" ? "--card" : "--background"),
     overdue: text(HEALTH.overdue.className),
     status: Object.fromEntries(Object.entries(STATUS).map(([k, v]) => [k, text(v.className)])) as Record<TaskStatus, THREE.Color>,
     health: Object.fromEntries(Object.entries(PROJECT_HEALTH).map(([k, v]) => [k, text(v.className)])) as Record<
@@ -311,12 +330,7 @@ function readPalette(root: HTMLElement, surface: "card" | "background") {
   return palette
 }
 
-function mountScene(
-  root: HTMLElement,
-  data: SceneData,
-  surface: "card" | "background",
-  hooks: Hooks
-): SceneApi {
+function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks): SceneApi {
   let renderer: THREE.WebGLRenderer
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" })
@@ -325,12 +339,17 @@ function mountScene(
     return { set: () => {}, select: () => {}, dispose: () => {} }
   }
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches
-  let pal = readPalette(root, surface)
-  const tints: [THREE.Material & { color: THREE.Color }, Tone][] = []
+  let pal = readPalette(root)
+  const tints: ((p: Palette) => void)[] = []
 
   let pixelRatio = Math.min(devicePixelRatio, 2)
   renderer.setPixelRatio(pixelRatio)
   renderer.setClearColor(0x000000, 0)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.12
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.domElement.className = "block size-full cursor-grab touch-none outline-none"
   root.appendChild(renderer.domElement)
 
@@ -351,7 +370,7 @@ function mountScene(
   const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 200)
   camera.position.set(1, 0.85, 1.1).multiplyScalar(20)
   const controls = new OrbitControls(camera, renderer.domElement)
-  controls.target.set(0, 0.4, 0)
+  controls.target.set(0, CENTER_Y, 0)
   controls.enableDamping = true
   controls.enablePan = false
   controls.dampingFactor = 0.065
@@ -362,54 +381,161 @@ function mountScene(
   controls.zoomSpeed = 0.7
   controls.autoRotateSpeed = 0.24
 
+  // --- light, as the factory sets it: a room for reflections, a warm key with shadows, a cool rim.
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  const room = new RoomEnvironment()
+  const env = pmrem.fromScene(room, 0.04)
+  scene.environment = env.texture
+  scene.environmentIntensity = 0.62
+  room.dispose()
+  pmrem.dispose()
+  scene.add(new THREE.HemisphereLight(0xdbe5f4, 0x29211a, 2))
+  const key = new THREE.DirectionalLight(0xfff1d8, 4.2)
+  key.position.set(-4, 12, 7)
+  key.castShadow = true
+  key.shadow.mapSize.set(2048, 2048)
+  Object.assign(key.shadow.camera, { left: -10, right: 10, top: 9, bottom: -9, near: 0.5, far: 35 })
+  key.shadow.normalBias = 0.035
+  key.shadow.bias = -0.0002
+  key.shadow.radius = 4
+  scene.add(key)
+  const rim = new THREE.DirectionalLight(0xc4d4ed, 3.1)
+  rim.position.set(3, 7, -8)
+  scene.add(rim)
+  const warm = new THREE.PointLight(0xffbd42, 28, 20, 2)
+  warm.position.set(-4, 5, 3)
+  scene.add(warm)
+  const front = new THREE.DirectionalLight(0xffffff, 1)
+  front.position.set(5, 3, 10)
+  scene.add(front)
+
+  // The floor only catches shadows, plus a soft contact shadow under the deck.
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), new THREE.ShadowMaterial({ opacity: 0.23 }))
+  floor.rotation.x = -Math.PI / 2
+  floor.position.y = -0.43
+  floor.receiveShadow = true
+  scene.add(floor)
+  const blob = document.createElement("canvas")
+  blob.width = blob.height = 128
+  const bctx = blob.getContext("2d")!
+  const grad = bctx.createRadialGradient(64, 64, 12, 64, 64, 64)
+  grad.addColorStop(0, "rgba(0,0,0,.8)")
+  grad.addColorStop(0.55, "rgba(0,0,0,.45)")
+  grad.addColorStop(1, "rgba(0,0,0,0)")
+  bctx.fillStyle = grad
+  bctx.fillRect(0, 0, 128, 128)
+  const contact = new THREE.Mesh(
+    new THREE.PlaneGeometry(18, 13),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(blob), transparent: true, depthWrite: false, opacity: 0.55 })
+  )
+  contact.rotation.x = -Math.PI / 2
+  contact.position.y = -0.415
+  scene.add(contact)
+
   // --- building blocks -------------------------------------------------------
   const layer = (): Layer => {
     const group = new THREE.Group()
     scene.add(group)
     return { group, mats: [], items: [], labels: [], weight: 0, radius: 4 }
   }
-  const fade = <T extends THREE.Material>(L: Layer, m: T, base = 1) => {
-    m.transparent = true
-    m.opacity = 0
-    L.mats.push({ m, base })
+  const own = <T extends THREE.Material>(L: Layer, m: T, base = 1) => {
+    m.userData.base = base
+    L.mats.push(m)
     return m
   }
-  const tinted = <T extends THREE.Material & { color: THREE.Color }>(m: T, tone: Tone) => {
-    m.color.copy(tone(pal))
-    tints.push([m, tone])
+  // Each view owns its materials, so it can fade on its own.
+  const kit = (L: Layer) =>
+    Object.fromEntries(
+      Object.entries(FINISH).map(([k, [color, metalness, roughness]]) => [
+        k,
+        own(L, new THREE.MeshStandardMaterial({ color, metalness, roughness })),
+      ])
+    ) as Record<keyof typeof FINISH, Std>
+  // A coloured part that can glow: amber, warm white, or a status / health colour from lib/labels.ts.
+  const lit = (L: Layer, tone: Tone | number, glow: number, metalness = 0.2, roughness = 0.25) => {
+    const m = own(L, new THREE.MeshStandardMaterial({ metalness, roughness, emissiveIntensity: glow }))
+    const paint = (p: Palette) => {
+      const c = typeof tone === "number" ? new THREE.Color(tone) : tone(p)
+      m.color.copy(c)
+      m.emissive.copy(c)
+    }
+    paint(pal)
+    tints.push(paint)
     return m
   }
-  // A plate-filled box drawn by its edges, sitting on y = 0 of its own group.
-  const box = (
-    L: Layer, parent: THREE.Object3D, w: number, h: number, d: number, x: number, y: number, z: number,
-    tone: Tone = (q) => q.muted
-  ) => {
+  const geos = new Map<string, THREE.BufferGeometry>()
+  const geo = (key: string, make: () => THREE.BufferGeometry) => {
+    let g = geos.get(key)
+    if (!g) geos.set(key, (g = make()))
+    return g
+  }
+  const mesh = (parent: THREE.Object3D, g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const o = new THREE.Mesh(g, m)
+    o.position.set(x, y, z)
+    o.castShadow = o.receiveShadow = true
+    parent.add(o)
+    return o
+  }
+  const box = (parent: THREE.Object3D, w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material, r = 0.04) =>
+    mesh(
+      parent,
+      geo(`b${w},${h},${d},${r}`, () =>
+        r ? new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 3, h / 3, d / 3)) : new THREE.BoxGeometry(w, h, d)
+      ),
+      m, x, y, z
+    )
+  const cyl = (parent: THREE.Object3D, r: number, h: number, x: number, y: number, z: number, m: THREE.Material, seg = 24) =>
+    mesh(parent, geo(`c${r},${h},${seg}`, () => new THREE.CylinderGeometry(r, r, h, seg)), m, x, y, z)
+  const tube = (parent: THREE.Object3D, pts: THREE.Vector3[], r: number, m: THREE.Material) => {
+    const o = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, r, 8, false), m)
+    o.castShadow = true
+    parent.add(o)
+    return o
+  }
+  type Kit = ReturnType<typeof kit>
+  const screw = (parent: THREE.Object3D, x: number, y: number, z: number, M: Kit) => {
+    cyl(parent, 0.055, 0.026, x, y, z, M.chrome, 12)
+    box(parent, 0.068, 0.005, 0.009, x, y + 0.014, z, M.dark, 0)
+  }
+  const gear = (parent: THREE.Object3D, x: number, y: number, z: number, r: number, M: Kit) => {
     const g = new THREE.Group()
     g.position.set(x, y, z)
-    const geo = new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0)
-    const fill = new THREE.Mesh(
-      geo,
-      fade(L, tinted(new THREE.MeshBasicMaterial({ polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }), (p) => p.plate))
-    )
-    const edge = fade(L, tinted(new THREE.LineBasicMaterial(), tone))
-    g.add(fill, new THREE.LineSegments(new THREE.EdgesGeometry(geo), edge))
     parent.add(g)
-    return { g, fill, edge }
+    cyl(g, r, 0.09, 0, 0, 0, M.copper)
+    cyl(g, r * 0.66, 0.105, 0, 0, 0, M.dark)
+    cyl(g, r * 0.22, 0.14, 0, 0, 0, M.chrome)
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU
+      box(g, r * 0.26, 0.085, r * 0.2, Math.cos(a) * r, 0, Math.sin(a) * r, M.copper, 0.008).rotation.y = -a
+    }
+    return g
   }
-  const line = (L: Layer, parent: THREE.Object3D, pts: THREE.Vector3[], tone: Tone, base = 1) => {
-    const m = fade(L, tinted(new THREE.LineBasicMaterial(), tone), base)
-    parent.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), m))
-    return m
+  // The layered deck under each view, after the factory's plate: base, edge, top, an amber strip, feet.
+  const deck = (L: Layer, M: Kit, w: number, d: number, z = 0) => {
+    const g = L.group
+    box(g, w, 0.38, d, 0, -0.09, z, M.base, 0.17)
+    box(g, w - 0.2, 0.055, d - 0.17, 0, 0.13, z, M.edge, 0.11)
+    box(g, w - 0.31, 0.09, d - 0.29, 0, 0.19, z, M.body, 0.1)
+    box(g, w - 0.9, 0.026, 0.032, 0, -0.17, z + d / 2 + 0.005, lit(L, AMBER, 1.5), 0.01)
+    for (const sx of [-1, 1])
+      for (const sz of [-1, 1]) {
+        cyl(g, 0.39, 0.25, sx * (w / 2 - 0.9), -0.31, z + sz * (d / 2 - 0.8), M.rubber)
+        screw(g, sx * (w / 2 - 0.35), DECK + 0.015, z + sz * (d / 2 - 0.35), M)
+      }
   }
-  const dot = (L: Layer, parent: THREE.Object3D, r: number, x: number, y: number, z: number, tone: Tone) => {
-    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 24), fade(L, tinted(new THREE.MeshBasicMaterial(), tone)))
-    m.rotation.x = -Math.PI / 2
-    m.position.set(x, y, z)
-    parent.add(m)
+  // A station footing: dark base, a glowing strip, a steel top with screws. Returns its top height.
+  const footing = (parent: THREE.Object3D, w: number, d: number, strip: Std, M: Kit) => {
+    box(parent, w, 0.12, d, 0, 0.06, 0, M.dark, 0.1)
+    box(parent, w - 0.08, 0.03, d - 0.08, 0, 0.135, 0, strip, 0.09)
+    box(parent, w - 0.02, 0.17, d - 0.05, 0, 0.235, 0, M.body, 0.1)
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) screw(parent, sx * (w / 2 - 0.18), 0.33, sz * (d / 2 - 0.18), M)
+    return 0.32
   }
   const label = (L: Layer, obj: THREE.Object3D, at: THREE.Vector3, name: string, meta: string) => {
     const el = document.createElement("div")
-    el.className = "absolute top-0 left-0 flex max-w-28 items-baseline gap-1.5 text-xs whitespace-nowrap opacity-0 sm:max-w-40"
+    // A small glass pill, so the name reads on the dark deck as well as on the page.
+    el.className =
+      "absolute top-0 left-0 flex max-w-28 items-baseline gap-1 rounded-full bg-card/85 px-2 py-0.5 text-[11px] whitespace-nowrap opacity-0 shadow-sm ring-1 ring-foreground/5 backdrop-blur sm:max-w-44 sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-xs"
     const n = document.createElement("span")
     n.className = "truncate text-foreground"
     n.textContent = name
@@ -422,79 +548,140 @@ function mountScene(
   }
   const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 
-  // --- Hub -----------------------------------------------------------------
+  // --- Hub: the workspace core, a station per project, copper lines between them ---------
   const hub = layer()
-  box(hub, hub.group, 1.5, 0.6, 1.5, 0, 0, 0, (q) => q.fg)
-  box(hub, hub.group, 0.8, 0.25, 0.8, 0, 0.6, 0)
+  const HM = kit(hub)
+  deck(hub, HM, 9.4, 9.4)
+  const core = new THREE.Group()
+  core.position.y = DECK
+  hub.group.add(core)
+  const coreTop = footing(core, 1.9, 1.9, lit(hub, AMBER, 1.2), HM)
+  box(core, 1.6, 0.62, 1.6, 0, coreTop + 0.31, 0, HM.ivory, 0.13)
+  box(core, 1.7, 0.16, 1.7, 0, coreTop + 0.7, 0, HM.amber, 0.045)
+  const hubGear = gear(core, 0, coreTop + 0.85, 0, 0.42, HM)
+  const fill = lit(hub, AMBER, 1.2)
   data.projects.slice(0, CELLS.length).forEach((p, i) => {
     const [cx, cz] = CELLS[i]
-    const h = 0.16 + Math.min(p.open, 12) * 0.035
-    const t = box(hub, hub.group, 1.8, h, 1.8, cx * PITCH, 0, cz * PITCH)
-    const len = 1.4
-    line(hub, t.g, [v(-0.7, h + 0.002, 0.6), v(0.7, h + 0.002, 0.6)], (q) => q.muted, 0.35)
-    line(hub, t.g, [v(-0.7, h + 0.004, 0.6), v(-0.7 + (len * p.progress) / 100, h + 0.004, 0.6)], (q) => q.fg)
-    dot(hub, t.g, 0.09, 0.6, h + 0.004, -0.6, (q) => q.health[p.health])
-    const link = fade(hub, new THREE.LineDashedMaterial({ dashSize: 0.12, gapSize: 0.1 }))
-    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([v(0, 0.3, 0), v(cx * PITCH, 0.08, cz * PITCH)]), link)
-    ln.computeLineDistances()
-    hub.group.add(ln)
+    const t = new THREE.Group()
+    t.position.set(cx * PITCH, DECK, cz * PITCH)
+    hub.group.add(t)
+    const strip = lit(hub, (q) => q.health[p.health], 0.7)
+    const base = footing(t, 1.9, 1.7, strip, HM)
+    const h = 0.12 + Math.min(p.open, 12) * 0.045
+    box(t, 1.6, h, 1.4, 0, base + h / 2, -0.02, HM.ivory, 0.08)
+    const top = base + h
+    // Progress: a dark track with an amber fill on the tile's face.
+    box(t, 1.3, 0.025, 0.12, 0, top + 0.012, 0.45, HM.dark, 0.01)
+    const fw = Math.max(0.03, (1.3 * p.progress) / 100)
+    box(t, fw, 0.04, 0.12, -0.65 + fw / 2, top + 0.02, 0.45, fill, 0.01)
+    // A copper line from the core to the tile; it glows amber while the tile is up.
+    const link = own(hub, new THREE.MeshStandardMaterial({ color: FINISH.copper[0], metalness: 0.85, roughness: 0.3, emissive: AMBER, emissiveIntensity: 0 }))
+    const end = v(cx * PITCH, 0, cz * PITCH)
+    const dir = end.clone().normalize()
+    const a = dir.clone().multiplyScalar(1.0).setY(DECK + 0.14)
+    const b = end.clone().addScaledVector(dir, cx && cz ? -1.3 : -0.97).setY(DECK + 0.14)
+    tube(hub.group, [a, a.clone().lerp(b, 0.5).setY(DECK + 0.38), b], 0.05, link)
     hub.items.push({
-      obj: t.g, y: 0, lift: 0, edge: t.edge, tone: (q) => q.muted, top: h, cell: [cx, cz], link,
+      obj: t, y: DECK, lift: 0, glow: strip, rest: 0.7, top, cell: [cx, cz], link,
       tip: [p.name, `${PROJECT_HEALTH[p.health].label} · ${p.progress}% · ${p.open} open`],
       href: `/tasks?project=${p.id}`,
     })
-    label(hub, t.g, v(0, 0, 1.05), p.name, String(p.open))
+    label(hub, t, v(0, 0, 1.05), p.name, String(p.open))
   })
 
-  // --- Flow ----------------------------------------------------------------
+  // --- Flow: a station per status, a block per task, a belt the followed task rides --------
   const flow = layer()
+  const FM = kit(flow)
+  deck(flow, FM, 13, 7.6, -1.1)
   const tasksBy = (s: TaskStatus) => data.tasks.filter((t) => t.status === s)
   for (const lane of LANES) {
-    const plate = box(flow, flow.group, 2.3, 0.12, 2.3, lane.x, 0, lane.z)
+    const st = new THREE.Group()
+    st.position.set(lane.x, DECK, lane.z)
+    flow.group.add(st)
+    const strip = lit(flow, lane.status === "not_started" ? WARM_WHITE : (q) => q.status[lane.status], 0.9)
+    const base = footing(st, 2.3, 2.3, strip, FM)
     tasksBy(lane.status).forEach((t, i) => {
       const col = i % 3, row = Math.floor(i / 3) % 3, level = Math.floor(i / 9)
-      const y = 0.12 + level * 0.56
-      const c = box(flow, flow.group, 0.48, 0.48, 0.48, lane.x + (col - 1) * 0.64, y, lane.z + (row - 1) * 0.64)
+      const y = DECK + base + level * 0.56
+      const c = new THREE.Group()
+      c.position.set(lane.x + (col - 1) * 0.64, y, lane.z + (row - 1) * 0.64)
+      flow.group.add(c)
+      const m = lit(flow, t.status === "not_started" ? FINISH.ivory[0] : (q) => q.status[t.status], 0, 0.45, 0.3)
+      box(c, 0.48, 0.48, 0.48, 0, 0.24, 0, m, 0.06)
       flow.items.push({
-        obj: c.g, y, lift: 0, edge: c.edge, top: 0.48,
-        tone: (q) => (t.status === "not_started" ? q.muted : q.status[t.status]),
+        obj: c, y, lift: 0, glow: m, rest: 0, top: 0.48,
         tip: [t.title, [t.project, STATUS[t.status].label].filter(Boolean).join(" · ")],
         href: `/tasks/${t.id}`,
       })
     })
-    label(flow, plate.g, v(0, 0, 1.4), STATUS[lane.status].label.split(" /")[0], String(data.counts[lane.status]))
+    label(flow, st, v(0, 0, 1.4), STATUS[lane.status].label.split(" /")[0], String(data.counts[lane.status]))
   }
-  // Arrows between lanes, and a branch back to Blocked.
-  for (let i = 0; i < 3; i++) line(flow, flow.group, [v(LANES[i].x + 1.2, 0.06, 0), v(LANES[i + 1].x - 1.2, 0.06, 0)], (q) => q.muted, 0.6)
-  line(flow, flow.group, [v(-1.4, 0.06, -1.2), v(-1.4, 0.06, -1.7)], (q) => q.muted, 0.6)
-  // One real task walks the line: the one the "Following one task" card names.
-  const runner = box(flow, flow.group, 0.3, 0.3, 0.3, -5.6, 0.04, 1.6, (q) => q.fg)
-  line(flow, flow.group, [v(-5.6, 0.02, 1.6), v(5.6, 0.02, 1.6)], (q) => q.muted, 0.35)
+  // Copper lines between stations, and a branch back to Blocked.
+  for (let i = 0; i < 3; i++)
+    tube(flow.group, [v(LANES[i].x + 1.15, DECK + 0.14, 0), v(LANES[i + 1].x - 1.15, DECK + 0.14, 0)], 0.05, FM.copper)
+  tube(flow.group, [v(-1.4, DECK + 0.14, -1.15), v(-1.4, DECK + 0.14, -1.75)], 0.05, FM.copper)
+  // The belt: a dark frame, chrome rails and instanced treads that move while playing.
+  const beltY = DECK + 0.12
+  box(flow.group, 11.8, 0.1, 0.7, 0, DECK + 0.05, BELT_Z, FM.dark, 0.05)
+  for (const side of [-1, 1]) tube(flow.group, [v(-5.9, beltY + 0.07, BELT_Z + side * 0.36), v(5.9, beltY + 0.07, BELT_Z + side * 0.36)], 0.028, FM.chrome)
+  const SLATS = 70
+  const slats = new THREE.InstancedMesh(geo("slat", () => new RoundedBoxGeometry(0.12, 0.05, 0.62, 2, 0.012)), FM.body, SLATS)
+  slats.receiveShadow = true
+  slats.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  flow.group.add(slats)
+  const dummy = new THREE.Object3D()
+  const moveSlats = (offset: number) => {
+    for (let i = 0; i < SLATS; i++) {
+      dummy.position.set(-5.8 + ((i * 11.6) / SLATS + offset) % 11.6, beltY, BELT_Z)
+      dummy.updateMatrix()
+      slats.setMatrixAt(i, dummy.matrix)
+    }
+    slats.instanceMatrix.needsUpdate = true
+  }
+  moveSlats(0)
+  // One real task rides the belt as a card with an amber halo: the one "Following one task" names.
+  const runner = new THREE.Group()
+  flow.group.add(runner)
+  box(runner, 0.47, 0.71, 0.04, 0, 0.36, 0, FM.ivory, 0.022)
+  box(runner, 0.36, 0.12, 0.045, 0, 0.56, 0.004, lit(flow, AMBER, 1.4), 0.01)
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(0.4, 0.414, 40),
+    own(flow, new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, side: THREE.DoubleSide, depthWrite: false }), 0.8)
+  )
+  halo.rotation.x = -Math.PI / 2
+  halo.position.y = 0.01
+  runner.add(halo)
+  runner.position.set(-5.6, beltY + 0.03, BELT_Z)
 
-  // --- Team ----------------------------------------------------------------
+  // --- Team: a station per person, a stack of blocks per open task ----------------------
   const team = layer()
+  const TM = kit(team)
   const n = data.members.length
   const perRow = n > 4 ? Math.ceil(n / 2) : n
+  deck(team, TM, Math.max(4, perRow * 2.5 + 1.4), n > 4 ? 6.4 : 3.6)
+  const working = lit(team, (q) => q.status.in_progress, 0.15, 0.45, 0.3)
+  const stuck = lit(team, (q) => q.status.blocked, 0.15, 0.45, 0.3)
   data.members.forEach((m, i) => {
     const row = Math.floor(i / perRow), col = i % perRow
     const inRow = row === 0 ? Math.min(perRow, n) : n - perRow
     const x = (col - (inRow - 1) / 2) * 2.5
     const z = n > 4 ? (row ? 1.4 : -1.4) : 0
     const tower = new THREE.Group()
-    tower.position.set(x, 0, z)
+    tower.position.set(x, DECK, z)
     team.group.add(tower)
-    const plate = box(team, tower, 1.6, 0.08, 1.6, 0, 0, 0)
+    // The strip turns red when the person has overdue work.
+    const strip = lit(team, m.overdue ? (q) => q.overdue : AMBER, 0.8)
+    const base = footing(tower, 1.6, 1.6, strip, TM)
     const slabs = Math.min(m.open, 12)
-    const working = m.active - m.blocked
-    for (let s = 0; s < slabs; s++) {
-      const tone: Tone = s < working ? (q) => q.status.in_progress : s < m.active ? (q) => q.status.blocked : (q) => q.muted
-      box(team, tower, 1.1, 0.14, 1.1, 0, 0.12 + s * 0.2, 0, tone)
-    }
-    if (m.overdue) dot(team, tower, 0.09, 0.6, 0.082, 0.6, (q) => q.overdue)
-    const top = 0.12 + slabs * 0.2
+    const active = m.active - m.blocked
+    for (let s = 0; s < slabs; s++)
+      box(tower, 1.1, 0.16, 1.1, 0, base + 0.1 + s * 0.2, 0, s < active ? working : s < m.active ? stuck : TM.ivory, 0.03)
+    // Chrome, not amber: amber would read as one more "In progress" block.
+    box(tower, 1.16, 0.06, 1.16, 0, base + 0.05 + slabs * 0.2, 0, TM.chrome, 0.02)
+    const top = base + 0.08 + slabs * 0.2
     const meta = [`${m.open} open`, m.active && `${m.active} in progress`, m.overdue && `${m.overdue} overdue`]
     team.items.push({
-      obj: tower, y: 0, lift: 0, edge: plate.edge, tone: (q) => q.muted, top,
+      obj: tower, y: DECK, lift: 0, glow: strip, rest: 0.8, top,
       tip: [m.name, meta.filter(Boolean).join(" · ")],
       href: `/tasks?person=${m.id}`,
     })
@@ -545,20 +732,20 @@ function mountScene(
   const viewDir = new THREE.Vector3(1, 0.85, 1.1).normalize()
   let animating = true, flightT = 0, runT = 0
   const fit = () =>
-    (layers[mode].radius * 1.2) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect)
+    (layers[mode].radius * 1.05) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect)
   // Focus in Flow with nothing picked rides along with the walking task.
   const followsRunner = () => cam === "focus" && !selected && mode === "flow"
   const setGoal = () => {
     const d = fit()
     controls.maxDistance = d * 1.8
-    const focus = cam === "focus" ? (selected?.obj ?? (mode === "flow" ? runner.g : layers[mode].items[0]?.obj)) : null
+    const focus = cam === "focus" ? (selected?.obj ?? (mode === "flow" ? runner : layers[mode].items[0]?.obj)) : null
     if (focus) {
       focus.getWorldPosition(goalTarget)
       goalTarget.y += 0.3
       goalPos.copy(goalTarget).addScaledVector(viewDir, d * 0.42)
       return
     }
-    goalTarget.set(0, 0.4, 0)
+    goalTarget.set(0, CENTER_Y, 0)
     if (cam === "side") goalPos.set(13, 5, 20).normalize().multiplyScalar(d).add(goalTarget)
     else if (cam === "top") goalPos.set(0.01, d, 0.8).add(goalTarget)
     else goalPos.copy(viewDir).multiplyScalar(d).add(goalTarget)
@@ -638,8 +825,8 @@ function mountScene(
   el.addEventListener("webglcontextrestored", onRestored)
 
   const repaint = () => {
-    pal = readPalette(root, surface)
-    for (const [m, tone] of tints) m.color.copy(tone(pal))
+    pal = readPalette(root)
+    for (const paint of tints) paint(pal)
   }
   const mo = new MutationObserver(repaint)
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
@@ -651,7 +838,7 @@ function mountScene(
   // --- frame loop ----------------------------------------------------------
   const p = new THREE.Vector3()
   const mainLanes = LANES.slice(0, 4)
-  let last = performance.now(), raf = 0, ready = false, step = -1, frames = 0, measured = 0
+  let last = performance.now(), raf = 0, ready = false, step = -1, frames = 0, measured = 0, simT = 0
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame)
     const dt = Math.min((now - last) / 1000, 0.05)
@@ -659,6 +846,7 @@ function mountScene(
     if (!visible || document.hidden || lost || !sized) return
     const ease = (rate: number) => (reduce ? 1 : 1 - Math.exp(-dt * rate))
     if (playing) {
+      simT += dt
       flightT += dt
       runT = (runT + dt / 9) % 1
     }
@@ -676,7 +864,15 @@ function mountScene(
         continue
       }
       if (!reduce) layerOf.group.position.y = (1 - w) * -0.5
-      for (const { m, base } of layerOf.mats) m.opacity = base * w
+      // Fading views go transparent; at rest they render opaque, with full shadows.
+      for (const m of layerOf.mats) {
+        const fading = w < 0.999 || m.userData.base < 1
+        if (m.transparent !== fading) {
+          m.transparent = fading
+          m.needsUpdate = true
+        }
+        m.opacity = m.userData.base * w
+      }
       const lit = hot ?? selected
       for (const it of layerOf.items) {
         const on = it === hot || it === selected
@@ -684,11 +880,8 @@ function mountScene(
         const target = on ? (it.cell ? 0.55 : 0.18) : near ? 0.2 : 0
         it.lift += (target - it.lift) * ease(14)
         it.obj.position.y = it.y + it.lift
-        it.edge.color.copy(on ? pal.fg : it.tone(pal))
-        if (it.link) {
-          it.link.gapSize = on ? 0 : 0.1
-          it.link.color.copy(on ? pal.fg : pal.muted)
-        }
+        it.glow.emissiveIntensity += ((on ? 3.5 : it.rest) - it.glow.emissiveIntensity) * ease(10)
+        if (it.link) it.link.emissiveIntensity += ((on ? 1.6 : 0) - it.link.emissiveIntensity) * ease(10)
       }
       for (const lb of layerOf.labels) {
         p.copy(lb.at)
@@ -700,13 +893,14 @@ function mountScene(
     }
 
     // The followed task walks the Flow line, hopping lane to lane, fading in and out at its ends.
+    hubGear.rotation.y = simT * 1.1
     if (layers.flow.weight > 0.01) {
-      runner.g.position.x = -5.6 + runT * 11.2
-      runner.g.position.y = 0.04 + (reduce ? 0 : Math.abs(Math.sin(runT * Math.PI * 8)) * 0.12)
-      runner.edge.opacity = layers.flow.weight * Math.min(1, runT * 8, (1 - runT) * 8)
+      runner.position.x = -5.6 + runT * 11.2
+      runner.scale.setScalar(Math.max(0.05, Math.min(1, runT * 8, (1 - runT) * 8)))
+      if (playing) moveSlats((simT * 1.244) % 11.6)
       const { step: stepEl, bar } = hooks.journey()
       let s = 0
-      for (let i = 1; i < mainLanes.length; i++) if (runner.g.position.x > mainLanes[i].x - 1.4) s = i
+      for (let i = 1; i < mainLanes.length; i++) if (runner.position.x > mainLanes[i].x - 1.4) s = i
       if (stepEl && s !== step) {
         step = s
         stepEl.textContent = `${STATUS[mainLanes[s].status].label.split(" /")[0]} · step ${s + 1} of ${mainLanes.length}`
@@ -717,7 +911,7 @@ function mountScene(
     // Camera: ease to the goal; Flight circles; Focus in Flow follows the task.
     if (cam === "flight" && playing && !dragging) {
       const a = flightT * 0.12, d = fit()
-      goalTarget.set(0, 0.4, 0)
+      goalTarget.set(0, CENTER_Y, 0)
       goalPos.set(Math.sin(a + 0.55) * d * 0.83, d * (0.5 + Math.sin(a * 0.7) * 0.09), Math.cos(a + 0.55) * d * 0.83).add(goalTarget)
       animating = true
     } else if (followsRunner() && playing && !dragging) {
@@ -799,6 +993,7 @@ function mountScene(
         m.geometry?.dispose()
         ;(Array.isArray(m.material) ? m.material : m.material ? [m.material] : []).forEach((x) => x.dispose())
       })
+      env.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
       el.remove()
