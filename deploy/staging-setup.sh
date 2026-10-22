@@ -79,8 +79,9 @@ supervisorctl reread
 supervisorctl update
 
 # Replaces vercel.ts crons. The droplet runs UTC: 01:00 Monday UTC = 08:00 in Phnom Penh.
-# The secret is read from the 600 .env at run time, so this world-readable file holds none.
-CRON="curl -fsS -o /dev/null -H \"Authorization: Bearer \$(sed -n 's/^CRON_SECRET=//p' $ENV_FILE)\" http://127.0.0.1:$PORT/api/cron"
+# The secret is read from the 600 .env at run time, so this world-readable file holds none,
+# and reaches curl on stdin (-H @-), so it never shows in ps.
+CRON="sed -n 's/^CRON_SECRET=/Authorization: Bearer /p' $ENV_FILE | curl -fsS -o /dev/null -H @- http://127.0.0.1:$PORT/api/cron"
 cat > /etc/cron.d/wetrack-staging <<EOF
 */5 * * * * deploy $CRON/meetings >> $ROOT/shared/logs/cron.log 2>&1
 0 1 * * 1 deploy $CRON/digest >> $ROOT/shared/logs/cron.log 2>&1
@@ -92,9 +93,14 @@ server {
     server_name $HOST;
     client_max_body_size 20M;
 
+    # Not proxy_params: it appends to a client-sent X-Forwarded-For, which would let anyone
+    # pick the IP Better Auth rate-limits by. nginx is the only hop, so it sets the client IP.
     location / {
         proxy_pass http://127.0.0.1:$PORT;
-        include /etc/nginx/proxy_params;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
@@ -103,6 +109,7 @@ nginx -t
 systemctl reload nginx
 
 # HTTPS. Needs the DNS record pointing here first; re-run if it fails.
-certbot --nginx --redirect -d "$HOST"
+# --keep: on a re-run, reinstall the existing certificate into the rewritten site without asking.
+certbot --nginx --redirect --keep -d "$HOST"
 
 echo "Done. Fill in the blanks in $ENV_FILE, then run the GitHub workflow."

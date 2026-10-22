@@ -17,6 +17,8 @@ concurrency:
 
 jobs:
   deploy:
+    # A manual run from another branch would ship unreviewed code with the deploy key.
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     env:
       SSH_TARGET: deploy@139.59.120.180
