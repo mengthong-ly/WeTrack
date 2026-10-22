@@ -1,6 +1,6 @@
-import { createHash, timingSafeEqual } from "node:crypto"
 import { and, eq } from "drizzle-orm"
 
+import { authorized } from "@/lib/cron"
 import { db } from "@/lib/db"
 import { digestSent, organization } from "@/lib/db/schema"
 import { type Attention, needsAttention, projectProgress, STALE_DAYS, workload } from "@/lib/dashboard"
@@ -15,14 +15,6 @@ const REASON: Record<Attention, string> = {
   blocked: "Blocked",
   stale: `No update in ${STALE_DAYS}+ days`,
   unassigned: "Nobody on it",
-}
-
-const sha = (s: string) => createHash("sha256").update(s).digest()
-
-function authorized(request: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) return false
-  return timingSafeEqual(sha(request.headers.get("authorization") ?? ""), sha(`Bearer ${secret}`))
 }
 
 // Monday digest for owners and admins. Vercel cron calls this with `Authorization: Bearer $CRON_SECRET`.

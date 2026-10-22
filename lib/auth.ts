@@ -27,6 +27,9 @@ export const auth = betterAuth({
     },
   },
   socialProviders: google && { google },
+  // "Connect Google Calendar" links a Google account to the signed-in user. Its address may differ
+  // from the WeTrack email (personal sign-up, work calendar); only a signed-in user can link.
+  account: { accountLinking: { enabled: true, allowDifferentEmails: true } },
   plugins: [
     organization({
       requireEmailVerificationOnInvitation: true,

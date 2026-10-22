@@ -16,6 +16,8 @@ export function describeActivity(
       return "changed the deadline of"
     case "client_update_sent":
       return `sent a client update to ${String(data?.project ?? "a client")}`
+    case "meeting_scheduled":
+      return "scheduled a meeting on"
     default:
       return "updated"
   }

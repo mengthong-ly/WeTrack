@@ -1,0 +1,63 @@
+name: Deploy staging
+
+# Builds here (the droplet is too small to build) and deploys to
+# /var/www/wetrack-staging/releases/<release> with current pointing at the live one.
+# Serves https://internal.weshopkh.com. Server setup: deploy/staging-setup.sh.
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # A manual run from another branch would ship unreviewed code with the deploy key.
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-24.04
+    env:
+      SSH_TARGET: deploy@139.59.120.180
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # corepack ships with Node, so no third-party action runs in a job that holds the SSH key.
+      - run: corepack enable && corepack prepare pnpm@10.33.4 --activate
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Package
+        run: |
+          cp -a .next/standalone release
+          cp -a .next/static release/.next/static
+          cp -a public release/public
+          cp -a drizzle release/drizzle
+          pnpm dlx esbuild@0.25.12 scripts/migrate.ts --bundle --platform=node --target=node22 \
+            --external:pg-native --log-level=warning --outfile=release/migrate.cjs
+          tar -czf wetrack.tgz -C release .
+          echo "RELEASE=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        run: |
+          scp wetrack.tgz "$SSH_TARGET:/var/www/wetrack-staging/releases/$RELEASE.tgz"
+          ssh "$SSH_TARGET" bash -s -- "$RELEASE" < deploy/staging-release.sh

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { and, asc, countDistinct, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, countDistinct, desc, eq, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm"
 
 import { CLIENT_KINDS } from "@/lib/client-update"
 import { db } from "@/lib/db"
@@ -8,6 +8,7 @@ import {
   activity,
   clientUpdate,
   comment,
+  meeting,
   member,
   project,
   shareLink,
@@ -15,6 +16,7 @@ import {
   task,
   user,
 } from "@/lib/db/schema"
+import { canJoin, formatSlot, joinUrl, type Viewer } from "@/lib/meetings"
 
 export function listProjects(orgId: string) {
   return db.query.project.findMany({
@@ -164,4 +166,98 @@ export function activeShareLink(orgId: string) {
   return db.query.shareLink.findFirst({
     where: and(eq(shareLink.organizationId, orgId), isNull(shareLink.revokedAt)),
   })
+}
+
+// Meetings that aren't cancelled and haven't ended, earliest first.
+function liveMeetings(orgId: string, filter?: SQL) {
+  return db.query.meeting.findMany({
+    columns: {
+      id: true,
+      title: true,
+      startsAt: true,
+      endsAt: true,
+      meetUrl: true,
+      calendarUrl: true,
+      canceledAt: true,
+      attendeeEmails: true,
+      createdById: true,
+    },
+    where: and(
+      eq(meeting.organizationId, orgId),
+      isNull(meeting.canceledAt),
+      gt(meeting.endsAt, new Date()),
+      filter
+    ),
+    with: {
+      task: { columns: { id: true, title: true } },
+      createdBy: { columns: { id: true, name: true, image: true } },
+    },
+    orderBy: asc(meeting.startsAt),
+  })
+}
+export type MeetingRow = Awaited<ReturnType<typeof liveMeetings>>[number]
+
+/** The next `days` (default 7). With `email`/`userId`, only meetings that person is invited to or created. */
+export function upcomingMeetings(
+  orgId: string,
+  opts: { email?: string; userId?: string; days?: number } = {}
+): Promise<MeetingRow[]> {
+  const until = new Date(Date.now() + (opts.days ?? 7) * 86_400_000)
+  const mine =
+    opts.email || opts.userId
+      ? or(
+          opts.email ? sql`${opts.email.toLowerCase()} = any(${meeting.attendeeEmails})` : undefined,
+          opts.userId ? eq(meeting.createdById, opts.userId) : undefined
+        )
+      : undefined
+  return liveMeetings(orgId, and(lt(meeting.startsAt, until), mine))
+}
+
+export function taskMeetings(orgId: string, taskId: string): Promise<MeetingRow[]> {
+  return liveMeetings(orgId, eq(meeting.taskId, taskId))
+}
+
+/** What `MeetingList` renders. Built on the server so guest emails, the time zone and the Join rule stay here. */
+export type MeetingItem = {
+  id: string
+  title: string
+  slot: string
+  joinUrl: string | null
+  task: { id: string; title: string } | null
+  people: { id: string; name: string; image: string | null }[]
+  canCancel: boolean
+}
+
+export function meetingItems(
+  rows: MeetingRow[],
+  members: { id: string; name: string; email: string; image: string | null }[],
+  viewer: Viewer
+): MeetingItem[] {
+  const tz = process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh"
+  return rows.map((m) => ({
+    id: m.id,
+    title: m.title,
+    slot: formatSlot(m, tz),
+    joinUrl: canJoin(m, viewer) ? joinUrl(m) : null,
+    task: m.task,
+    people: members
+      .filter((p) => p.id === m.createdById || m.attendeeEmails.includes(p.email.toLowerCase()))
+      .map(({ id, name, image }) => ({ id, name, image })),
+    // Same rule as cancelMeeting; the server re-checks.
+    canCancel: viewer !== "share" && (m.createdById === viewer.userId || viewer.role !== "member"),
+  }))
+}
+
+/** Dates as ISO strings for the client `MeetingBanner`. */
+export function bannerMeetings(rows: MeetingRow[], viewer: Viewer) {
+  return rows.map((m) => ({
+    id: m.id,
+    title: m.title,
+    startsAt: m.startsAt.toISOString(),
+    endsAt: m.endsAt.toISOString(),
+    // No link means no Join button.
+    meetUrl: canJoin(m, viewer) ? m.meetUrl : null,
+    calendarUrl: canJoin(m, viewer) ? m.calendarUrl : null,
+    canceledAt: m.canceledAt?.toISOString() ?? null,
+  }))
 }

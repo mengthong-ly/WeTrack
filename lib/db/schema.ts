@@ -190,6 +190,37 @@ export const digestSent = pgTable(
   (t) => [primaryKey({ columns: [t.organizationId, t.sentOn] })]
 )
 
+// A scheduled Google Meet. Attendees are emails because guests (for example the CEO) may have no
+// account. `remindedAt` is claimed by the cron before the 1-hour Slack reminder is sent.
+export const meeting = pgTable(
+  "meeting",
+  {
+    id: id(),
+    organizationId: orgId(),
+    taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
+    createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    attendeeEmails: text("attendee_emails").array().notNull(),
+    googleEventId: text("google_event_id").notNull(),
+    meetUrl: text("meet_url"),
+    calendarUrl: text("calendar_url"),
+    remindedAt: timestamp("reminded_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("meeting_org_start_idx").on(t.organizationId, t.startsAt)]
+)
+
+// Per-workspace integrations. The Slack webhook URL is a secret and never reaches the client.
+export const workspaceIntegration = pgTable("workspace_integration", {
+  organizationId: text("organization_id")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  slackWebhookUrl: text("slack_webhook_url"),
+})
+
 export const projectRelations = relations(project, ({ many }) => ({
   tasks: many(task),
   releases: many(release),
@@ -217,5 +248,11 @@ export const commentRelations = relations(comment, ({ one }) => ({
   author: one(user, { fields: [comment.authorId], references: [user.id] }),
 }))
 
+export const meetingRelations = relations(meeting, ({ one }) => ({
+  task: one(task, { fields: [meeting.taskId], references: [task.id] }),
+  createdBy: one(user, { fields: [meeting.createdById], references: [user.id] }),
+}))
+
 export type Task = typeof task.$inferSelect
+export type Meeting = typeof meeting.$inferSelect
 export type Member = typeof member.$inferSelect

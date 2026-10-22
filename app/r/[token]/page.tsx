@@ -11,6 +11,8 @@ import { notFound } from "next/navigation"
 import { ProjectDot, UserAvatar } from "@/components/bits"
 import { AttentionList } from "@/components/attention-list"
 import { Logo } from "@/components/logo"
+import { MeetingBanner } from "@/components/meeting-banner"
+import { MeetingList } from "@/components/meeting-list"
 import { Reveal } from "@/components/motion-bits"
 import { PillTabs } from "@/components/pill-tabs"
 import { ProjectHealthList } from "@/components/project-health-list"
@@ -21,10 +23,13 @@ import { describeActivity } from "@/lib/activity-text"
 import { needsAttention, projectProgress, summarize, workload } from "@/lib/dashboard"
 import { formatDate, HEALTH, STATUS } from "@/lib/labels"
 import {
+  bannerMeetings,
   listMembers,
   listProjects,
   listTasks,
+  meetingItems,
   recentActivity,
+  upcomingMeetings,
 } from "@/lib/queries"
 import { doneThisWeek, health, todayISO } from "@/lib/schedule"
 import { resolveShareLink } from "@/lib/share"
@@ -48,10 +53,11 @@ export default async function SharedDashboard({
 
   const sp = await searchParams
   const today = todayISO()
-  const [allTasks, projects, members] = await Promise.all([
+  const [allTasks, projects, members, meetings] = await Promise.all([
     listTasks(link.orgId),
     listProjects(link.orgId),
     listMembers(link.orgId),
+    upcomingMeetings(link.orgId),
   ])
   const person = members.find((m) => m.id === sp.person)
   const tasks = person
@@ -97,6 +103,8 @@ export default async function SharedDashboard({
           Read-only
         </span>
       </header>
+      {/* The 7-day list covers the banner's 1-hour window, so one query feeds both. */}
+      <MeetingBanner meetings={bannerMeetings(meetings, "share")} />
 
       <div className="flex flex-col gap-8">
         <Reveal>
@@ -208,8 +216,17 @@ export default async function SharedDashboard({
               <AttentionList items={attention} />
             </Reveal>
 
+            <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
+              <h2 className="mb-4 text-lg">Upcoming meetings</h2>
+              <MeetingList
+                readOnly
+                meetings={meetingItems(meetings, members, "share")}
+                empty={<p className="text-sm text-muted-foreground">No meetings in the next 7 days.</p>}
+              />
+            </Reveal>
+
             <Reveal
-              index={7}
+              index={9}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Upcoming deadlines</h2>
@@ -246,7 +263,7 @@ export default async function SharedDashboard({
               </ul>
             </Reveal>
 
-            <Reveal index={8} className="rounded-sheet bg-card p-6 shadow-sm">
+            <Reveal index={10} className="rounded-sheet bg-card p-6 shadow-sm">
               <h2 className="flex items-baseline justify-between text-lg">
                 Done this week
                 <span className="tabular text-sm text-muted-foreground">{shipped.length}</span>
@@ -275,7 +292,7 @@ export default async function SharedDashboard({
             </Reveal>
 
             <Reveal
-              index={9}
+              index={11}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Projects</h2>
@@ -283,7 +300,7 @@ export default async function SharedDashboard({
             </Reveal>
 
             <Reveal
-              index={10}
+              index={12}
               className="rounded-sheet bg-card p-6 shadow-sm"
             >
               <h2 className="text-lg">Recent activity</h2>

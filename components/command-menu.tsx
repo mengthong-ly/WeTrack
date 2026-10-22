@@ -13,12 +13,14 @@ import {
   SunIcon,
   UserIcon,
   UsersIcon,
+  VideoIcon,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { ProjectDot, UserAvatar } from "@/components/bits"
+import { openNewMeeting } from "@/components/new-meeting-dialog"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { STATUS } from "@/lib/labels"
 import type { MemberLite, ProjectLite } from "@/lib/options"
@@ -74,6 +76,7 @@ export function CommandMenu({
     const go = (href: string) => () => router.push(href)
     return [
       { id: "new", group: "Actions", label: "New task", icon: icon(PlusIcon), hint: <kbd className={kbd}>C</kbd>, run: () => window.dispatchEvent(new Event(NEW_TASK_EVENT)) },
+      { id: "meeting", group: "Actions", label: "New meeting", icon: icon(VideoIcon), keywords: "schedule google meet call", run: () => openNewMeeting() },
       { id: "mine", group: "Actions", label: "My open tasks", icon: icon(UserIcon), run: go(`/tasks?person=${meId}&status=open`) },
       {
         id: "theme",

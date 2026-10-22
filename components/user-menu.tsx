@@ -1,10 +1,11 @@
 "use client"
 
-import { LogOutIcon, MoonIcon, SunIcon } from "lucide-react"
+import { CalendarCheckIcon, CalendarPlusIcon, LogOutIcon, MoonIcon, SunIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useRouter } from "next/navigation"
 
 import { UserAvatar } from "@/components/bits"
+import { connectGoogle } from "@/components/connect-google"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,9 +20,13 @@ import { authClient } from "@/lib/auth-client"
 export function UserMenu({
   user,
   orgName,
+  googleEnabled,
+  calendarConnected,
 }: {
   user: { name: string; email: string; image?: string | null }
   orgName: string
+  googleEnabled: boolean
+  calendarConnected: boolean
 }) {
   const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
@@ -44,6 +49,20 @@ export function UserMenu({
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        {googleEnabled &&
+          (calendarConnected ? (
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="flex items-center gap-1.5 text-sm font-normal [&_svg]:size-4">
+                <CalendarCheckIcon />
+                Google Calendar connected
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
+          ) : (
+            <DropdownMenuItem onClick={() => connectGoogle()}>
+              <CalendarPlusIcon />
+              Connect Google Calendar
+            </DropdownMenuItem>
+          ))}
         <DropdownMenuItem
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
