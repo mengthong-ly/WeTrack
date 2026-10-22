@@ -5,12 +5,14 @@ import { AttentionList } from "@/components/attention-list"
 import { MeetingList, NewMeetingButton } from "@/components/meeting-list"
 import { Reveal } from "@/components/motion-bits"
 import { ProjectHealthList } from "@/components/project-health-list"
+import { ProjectScene } from "@/components/project-scene"
 import { StatTile } from "@/components/stat-tile"
 import { TaskList } from "@/components/task-card"
 import { describeActivity } from "@/lib/activity-text"
 import { needsAttention, projectProgress, summarize } from "@/lib/dashboard"
 import { HEALTH, STATUS } from "@/lib/labels"
 import { listMembers, listProjects, listTasks, meetingItems, recentActivity, upcomingMeetings } from "@/lib/queries"
+import { sceneData } from "@/lib/scene"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { toCard } from "@/lib/task-view"
@@ -62,6 +64,10 @@ export default async function HomePage() {
           metaClassName={s.dueSoon ? HEALTH.due_soon.className : undefined}
         />
       </section>
+
+      <Reveal index={5} className="rounded-sheet bg-card shadow-sm">
+        <ProjectScene data={sceneData(projects, tasks, members, today)} linked className="h-[28rem] rounded-sheet lg:h-[32rem]" />
+      </Reveal>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Reveal index={5} className="flex flex-col gap-6 rounded-sheet bg-card p-3 shadow-sm sm:p-4 lg:col-span-2">
