@@ -190,6 +190,10 @@ Recurring one-offs to copy, not reinvent:
   functions, or every cell remounts and keyboard focus is lost.
 - **Press feedback**: small pill and icon buttons get `active:scale-95` (cells and rows `active:scale-97`), with
   `transition-[background-color,scale]`.
+- **Auth card** (`AuthForm`, `/onboarding`): `(auth)` layout card, `h-10` controls. "Continue with Google" is an
+  `outline` button above an "or with email" divider (`h-px flex-1 bg-foreground/10` on either side). Google's mark keeps
+  its own colours: third-party brand marks are the one exception to "no raw hex". After a password sign-up the card
+  swaps to "Check your email" (heading + one muted line naming the address).
 - **Stretched link card**: title `<Link>` with `after:absolute after:inset-0`. Inner interactive elements get `relative z-10`.
 
 ---
