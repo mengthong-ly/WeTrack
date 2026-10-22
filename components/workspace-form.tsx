@@ -6,7 +6,7 @@ import { createWorkspace } from "@/app/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-export function WorkspaceForm() {
+export function WorkspaceForm({ secondary = false }: { secondary?: boolean }) {
   const [error, setError] = useState<string>()
   const [pending, start] = useTransition()
   return (
@@ -18,7 +18,7 @@ export function WorkspaceForm() {
     >
       <Input name="name" aria-label="Workspace name" placeholder="WeShop" required minLength={2} className="h-10" autoFocus />
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button type="submit" size="lg" className="h-10" disabled={pending}>
+      <Button type="submit" size="lg" variant={secondary ? "secondary" : "default"} className="h-10" disabled={pending}>
         {pending ? "Creating…" : "Create workspace"}
       </Button>
     </form>

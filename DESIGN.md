@@ -165,6 +165,11 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Animated number | `CountUp` | `components/motion-bits.tsx` |
 | Section entrance | `Reveal index={n}` | `components/motion-bits.tsx` |
 | Copy-to-clipboard | `CopyButton` | `components/share-link-card.tsx` |
+| Connect Google Calendar | `ConnectGoogle` (outline button) or `connectGoogle()` for a menu item; account menu shows "Google Calendar connected" as a label once linked, nothing when Google isn't configured | `components/connect-google.tsx` |
+| Slack webhook setting (Team, owners and admins) | `SlackCard`: pill input + Connect; once linked, "Posting to Slack" with Replace and Remove (`confirm()`). Takes only `connected`, the URL never reaches the client. Error is one `role="alert"` line under the field | `components/slack-card.tsx` |
+| Schedule a Google Meet | `NewMeetingDialog` (mounted once in the app layout with `members`, `meId`, `calendarConnected`, `googleEnabled`) opened by `openNewMeeting({ title?, taskId? })` from ⌘K, task detail ("Schedule meeting" round button) and Home. Date is a single-mode `Calendar` in a `Popover`, Start/End are ghost `Input type="time" step={300}` (next half hour, 30 min; moving the start keeps the length). Not connected: one line + `ConnectGoogle`; Google not configured: one muted line, no form | `components/new-meeting-dialog.tsx` |
+| Meeting within the hour | `MeetingBanner` (floating glass `rounded-tile` strip above the page: video icon, "*Title* starts in 45 min" or "is on now", "+N more", dark `h-10` Join pill opening in a new tab). Server passes ISO dates; a 30-second client clock re-checks `bannerState()`, renders nothing on the server or outside the window. Rises 12px ease-out-expo, opacity only with reduced motion | `components/meeting-banner.tsx` |
+| Upcoming meetings | `MeetingList` (Home sheet with a "New meeting" text button, task detail "Meetings" above the tabs in a `rounded-panel bg-card p-2` panel when there are any, `readOnly` on the CEO page). Rows `rounded-row bg-muted/60`: `.tabular` slot, title, member avatars + task link, `bg-card` Join pill (only for invitees, the creator, owners and admins via `canJoin()` in `lib/meetings.ts`; the CEO page shows it on every row), row menu "Cancel meeting" (`destructive`, `confirm()`, optimistic; leaves with the list exit). The list is an `@container`: narrow (Home column) puts Join and the menu on the avatars line, `@md` and up moves them to the right of the row. Rows come from `meetingItems()` in `lib/queries.ts`, which formats the slot in `APP_TIMEZONE` and sets `canCancel` on the server | `components/meeting-list.tsx` |
 | Primitive controls | `components/ui/*` (shadcn, Base UI) | `components/ui` |
 
 Recurring one-offs to copy, not reinvent:
@@ -173,6 +178,9 @@ Recurring one-offs to copy, not reinvent:
 - **Empty state**: `rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground`, with one sentence that says what to do next.
 - **Properties panel** (create dialog): `rounded-panel bg-muted/60 p-1.5`, `sm:grid-cols-2` rows of muted icon + label +
   ghost `Pick` whose hover fill is `bg-card` (see `Prop` in `new-task-dialog.tsx`).
+- **Member multi-pick** (properties panel): ghost trigger listing first names ("Me, Dara, Sok", truncated), opening a
+  `Popover` (`rounded-panel p-1.5 w-64`) of `h-10 rounded-row` rows: `UserAvatar` + name + `size-5` round checkbox on the
+  right. Rows are `role="checkbox"` buttons with `aria-checked`; the popover stays open while you tick (see `NewMeetingDialog`).
 - **Editor toolbar**: `size-8` round icon buttons, muted; pressed = `bg-foreground text-background`; groups split by a
   `h-4 w-px bg-foreground/10` rule. Buttons `preventDefault` on mousedown so the selection stays.
 - **Shortcut hint**: `kbd` chips `h-5 min-w-5 rounded-md bg-muted text-[11px]`, hidden below `sm`.
@@ -190,6 +198,10 @@ Recurring one-offs to copy, not reinvent:
   functions, or every cell remounts and keyboard focus is lost.
 - **Press feedback**: small pill and icon buttons get `active:scale-95` (cells and rows `active:scale-97`), with
   `transition-[background-color,scale]`.
+- **Auth card** (`AuthForm`, `/onboarding`): `(auth)` layout card, `h-10` controls. "Continue with Google" is an
+  `outline` button above an "or with email" divider (`h-px flex-1 bg-foreground/10` on either side). Google's mark keeps
+  its own colours: third-party brand marks are the one exception to "no raw hex". After a password sign-up the card
+  swaps to "Check your email" (heading + one muted line naming the address).
 - **Stretched link card**: title `<Link>` with `after:absolute after:inset-0`. Inner interactive elements get `relative z-10`.
 
 ---

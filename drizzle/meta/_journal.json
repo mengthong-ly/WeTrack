@@ -29,6 +29,20 @@
       "when": 1792510406824,
       "tag": "0003_blue_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792566829541,
+      "tag": "0004_verify-existing-users",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792571628929,
+      "tag": "0005_premium_winter_soldier",
+      "breakpoints": true
     }
   ]
 }
