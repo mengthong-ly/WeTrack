@@ -66,7 +66,7 @@ export default async function HomePage() {
       </section>
 
       <Reveal index={5} className="rounded-sheet bg-card shadow-sm">
-        <ProjectScene data={sceneData(projects, tasks, members, today)} linked className="h-80 rounded-sheet sm:h-96 lg:h-[30rem]" />
+        <ProjectScene data={sceneData(projects, tasks, members, today)} linked className="h-[28rem] rounded-sheet lg:h-[32rem]" />
       </Reveal>
 
       <div className="grid gap-6 lg:grid-cols-3">
