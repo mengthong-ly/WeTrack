@@ -13,10 +13,10 @@ working on, for which client, when is it due, and when does it reach staging and
 | Topic | Decision |
 |---|---|
 | Data | Own Postgres database; WeTrack fully replaces the sheet (one-off import script). |
-| Editors | Small team — everyone signs in, tasks have an assignee. Invite-only after the first owner. |
+| Editors | Small team — everyone signs in, tasks have an assignee. Open sign-up (email + password or Google); teammates join by invite. |
 | CEO access | Private, revocable read-only share link (no account). _Milestone 2._ |
 | Client updates | Internal checklist per project of changes not yet reported, with a drafted copy-paste message. Clients never see WeTrack. _Milestone 2._ |
-| Stack | Next.js 16 App Router + Server Actions, Drizzle + Postgres (Neon in prod), Better Auth (email/password + organization plugin), SMTP email (Mailpit local, Resend prod), shadcn/ui neutral on Base UI, Motion. Vercel. |
+| Stack | Next.js 16 App Router + Server Actions, Drizzle + Postgres, Better Auth (email/password + organization plugin), SMTP email (Mailpit local, Resend prod), shadcn/ui neutral on Base UI, Motion. Self-hosted on the staging droplet (`deploy/`). |
 
 ## Data model
 
@@ -38,9 +38,10 @@ Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule heal
 3. **Planning** — release log UI (create/edit versions, link tasks, log release activity); timeline (week Gantt with S/P markers).
 4. **Quick capture** ✅ — type "Add accessories for AsiaMode due Fri" or "Fix login #asia @dara due fri !urgent" → parsed project/assignee/deadline/priority (`lib/quick-capture.ts`, unit-tested).
 5. **Team & boss views** ✅ — ⌘K command menu; Tasks search, person filter and a status board with drag and drop; project health (behind / at risk / on track); "Needs attention" (overdue, blocked, no update in 5+ days, unassigned); per-person workload on Team and the CEO link; "Done this week". Based on `docs/research/competitive-analysis.md`.
+6. **Meetings** — any member schedules a Google Meet (⌘K, task page or Home) from their own Google Calendar, with the title, date, people, guests and an optional linked task; the invite goes out by Google. Owners/admins connect a Slack incoming webhook on Team; new meetings and a 1-hour reminder (cron every 5 minutes) are posted there. A banner shows the next meeting within the hour with a Join button; Home, the task page and the CEO link list upcoming meetings (Join only for invitees, the creator and admins; cancel by the creator, owners and admins). Spec: `docs/superpowers/specs/2026-10-21-meetings-google-meet-slack-design.md`.
 
 ## Security notes
 
 - Every server action re-checks the session and that the target row belongs to the caller's workspace.
-- Sign-up must prove it came from the right link (`lib/auth.ts`): the first account needs the server's `SETUP_TOKEN`; everyone else needs the invite id from their email, matched to a pending, unexpired invitation for that address.
+- Sign-up is open (email + password, or Google). Workspaces are isolated by `organizationId`, so a stranger only ever sees their own empty workspace. Invites are matched by email on `/onboarding`, so every signed-in email must be proven: password accounts can't sign in until they open the confirmation link (`requireEmailVerification`), Google emails arrive verified, and accepting an invite checks `emailVerified` (`requireEmailVerificationOnInvitation`). Accounts made before open sign-up were marked verified by migration 0004 (they came through the setup link or an emailed invite id). Better Auth won't link Google to an existing account whose email isn't verified (`requireLocalEmailVerified`), so pre-registering someone's address can't take over their Google sign-in.
 - Share-link tokens are stored as sha256 hashes, shown once, one live link per workspace; the page is `noindex` and `no-referrer`.
