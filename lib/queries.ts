@@ -34,9 +34,21 @@ export function listMembers(orgId: string) {
     .orderBy(asc(user.name))
 }
 
+// Archived projects (and their tasks) leave every list until they're restored.
+export function listArchivedProjects(orgId: string) {
+  return db.query.project.findMany({
+    where: and(eq(project.organizationId, orgId), eq(project.archived, true)),
+    orderBy: asc(project.name),
+  })
+}
+
 export function listTasks(orgId: string) {
+  const live = db
+    .select({ id: project.id })
+    .from(project)
+    .where(and(eq(project.organizationId, orgId), eq(project.archived, false)))
   return db.query.task.findMany({
-    where: eq(task.organizationId, orgId),
+    where: and(eq(task.organizationId, orgId), inArray(task.projectId, live)),
     with: {
       project: { columns: { id: true, name: true, color: true } },
       assignee: { columns: { id: true, name: true, image: true } },

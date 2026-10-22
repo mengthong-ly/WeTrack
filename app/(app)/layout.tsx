@@ -26,7 +26,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <div className="mx-auto w-full max-w-6xl px-4 pt-6 pb-40 sm:px-8 sm:pt-10">
-        <header className="mb-8 flex items-center justify-between">
+        {/* Above the 3D workspace, which fills the screen behind it. */}
+        <header className="relative z-10 mb-8 flex items-center justify-between">
           <Link href="/" aria-label="WeTrack home">
             <Logo className="text-3xl sm:text-4xl" />
           </Link>
@@ -40,7 +41,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             />
           </div>
         </header>
-        <MeetingBanner meetings={bannerMeetings(soon, { userId: me.user.id, email: me.user.email, role: me.role })} />
+        <div className="relative z-10">
+          <MeetingBanner meetings={bannerMeetings(soon, { userId: me.user.id, email: me.user.email, role: me.role })} />
+        </div>
         {children}
       </div>
       <AppDock

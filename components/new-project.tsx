@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input"
 import { PROJECT_COLORS } from "@/lib/labels"
 import { cn } from "@/lib/utils"
 
-export function NewProject() {
+// "tile": the dashed card on the Projects grid. "button": a pill, for the 3D workspace's panels.
+export function NewProject({ variant = "tile" }: { variant?: "tile" | "button" }) {
   const [open, setOpen] = useState(false)
   const [color, setColor] = useState(PROJECT_COLORS[6])
   const [error, setError] = useState<string>()
@@ -19,8 +20,14 @@ export function NewProject() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger className="flex min-h-48 w-full flex-col items-center justify-center gap-2 rounded-tile border-2 border-dashed border-foreground/10 text-muted-foreground transition hover:border-foreground/25 hover:text-foreground">
-        <PlusIcon className="size-6" />
+      <DialogTrigger
+        className={
+          variant === "tile"
+            ? "flex min-h-48 w-full flex-col items-center justify-center gap-2 rounded-tile border-2 border-dashed border-foreground/10 text-muted-foreground transition hover:border-foreground/25 hover:text-foreground"
+            : "inline-flex h-10 items-center gap-2 rounded-full bg-muted px-4 text-sm transition-[background-color,color,scale] hover:bg-foreground hover:text-background active:scale-95"
+        }
+      >
+        <PlusIcon className={variant === "tile" ? "size-6" : "size-4"} />
         New project
       </DialogTrigger>
       <DialogContent className="rounded-tile p-6 sm:max-w-sm">
