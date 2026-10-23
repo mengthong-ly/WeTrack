@@ -12,6 +12,7 @@ import {
   activity,
   clientUpdate,
   comment,
+  feedback,
   joinCode,
   meeting,
   member,
@@ -354,6 +355,70 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
   if (!parsed.success) return { error: "Write something first." }
   if (!(await ownTask(me.orgId, taskId))) return { error: "Task not found." }
   await db.insert(comment).values({ taskId, authorId: me.user.id, body: parsed.data })
+  refresh()
+  return {}
+}
+
+// ---------- Feedback ----------
+
+const FEEDBACK_IMAGE_TYPES = ["image/webp", "image/png", "image/jpeg", "image/gif"]
+const FEEDBACK_IMAGE_MAX = 4 * 1024 * 1024
+
+// A senior's points on a task, sent together. Each point is `body-<i>` and/or `image-<i>`;
+// it goes to whoever the task is assigned to now.
+export async function createFeedback(form: FormData): Promise<Result & { count?: number }> {
+  const me = await requireMember()
+  const t = await ownTask(me.orgId, String(form.get("taskId") ?? ""))
+  if (!t) return { error: "Pick a task first." }
+  const rows: (typeof feedback.$inferInsert)[] = []
+  const now = Date.now()
+  for (let i = 0; i < 30; i++) {
+    const body = String(form.get(`body-${i}`) ?? "").trim().slice(0, 5000)
+    const file = form.get(`image-${i}`)
+    const image = file instanceof File && file.size > 0 ? file : null
+    if (!body && !image) continue
+    if (image && (!FEEDBACK_IMAGE_TYPES.includes(image.type) || image.size > FEEDBACK_IMAGE_MAX)) {
+      return { error: "Screenshots must be images under 4 MB." }
+    }
+    rows.push({
+      organizationId: me.orgId,
+      taskId: t.id,
+      authorId: me.user.id,
+      recipientId: t.assigneeId,
+      body: body || null,
+      image: image && Buffer.from(await image.arrayBuffer()),
+      imageType: image?.type ?? null,
+      // A millisecond apart, so the points keep the order they were written in.
+      createdAt: new Date(now + rows.length),
+    })
+  }
+  if (!rows.length) return { error: "Write a note or add a screenshot." }
+  await db.insert(feedback).values(rows)
+  refresh()
+  return { count: rows.length }
+}
+
+async function ownFeedback(orgId: string, id: string) {
+  return db.query.feedback.findFirst({
+    columns: { id: true, authorId: true },
+    where: and(eq(feedback.id, id), eq(feedback.organizationId, orgId)),
+  })
+}
+
+export async function setFeedbackResolved(id: string, resolved: boolean): Promise<Result> {
+  const me = await requireMember()
+  if (!(await ownFeedback(me.orgId, id))) return { error: "Feedback not found." }
+  await db.update(feedback).set({ resolvedAt: resolved ? new Date() : null }).where(eq(feedback.id, id))
+  refresh()
+  return {}
+}
+
+export async function deleteFeedback(id: string): Promise<Result> {
+  const me = await requireMember()
+  const row = await ownFeedback(me.orgId, id)
+  if (!row) return { error: "Feedback not found." }
+  if (row.authorId !== me.user.id && me.role === "member") return { error: "Only the person who wrote it can delete it." }
+  await db.delete(feedback).where(eq(feedback.id, id))
   refresh()
   return {}
 }

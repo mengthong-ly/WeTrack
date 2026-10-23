@@ -7,7 +7,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
-  experimental: { agentUpgrade: "security" },
+  // Feedback screenshots go through a server action: several shrunk images per send.
+  experimental: { agentUpgrade: "security", serverActions: { bodySizeLimit: "20mb" } },
 }
 
 export default nextConfig

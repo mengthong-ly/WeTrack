@@ -8,7 +8,7 @@ Design decisions and milestones: [docs/spec.md](docs/spec.md).
 
 ## Run it locally
 
-Needs Postgres on `localhost:5432` (Postgres.app) and Mailpit on `1025`/`8025` for sign-up confirmation emails.
+Needs Postgres on `localhost:5432` (Postgres.app) and Mailpit on `1025`/`8025` for sign-in codes.
 
 ```bash
 cp .env.example .env.local        # set BETTER_AUTH_SECRET (openssl rand -base64 32); Google keys are optional
@@ -18,9 +18,9 @@ pnpm db:migrate
 pnpm dev                          # http://localhost:3100
 ```
 
-1. Sign up at `/sign-up` with Google, or with email and password and then the confirmation link (Mailpit,
-   http://localhost:8025). Anyone can sign up; a new account sees nothing until it creates a team or joins one with
-   a join code.
+1. Sign in at `/sign-in` with Google, or with your email and the 6-digit code sent to it (Mailpit,
+   http://localhost:8025). The first sign-in creates the account; a new account sees nothing until it creates a team
+   or joins one with a join code.
 2. Create the team, then import the old sheet:
 
 ```bash
@@ -31,7 +31,7 @@ Rows without a client land in an **Unsorted** project — move them from each ta
 
 - **CEO link** — Team → CEO link → *Create link*. Copy it straight away (only a hash is stored). *Make a new link* kills the old one; *Turn off* disables it.
 - **Client updates** — Projects → *N to tell the client*: tick what to report, copy the drafted message into Telegram or email, then *Mark as sent*.
-- **Join code** — Team → Join code → *Create code* (owners and admins) and send it to teammates. They sign up and pick *Join a team*. Codes last 7 days and join as members; *Make a new code* kills the old one.
+- **Join code** — Team → Join code → *Create code* (owners and admins) and send it to teammates. They sign in and pick *Join a team*. Codes last 7 days and join as members; *Make a new code* kills the old one.
 - **Roles** — the owner clicks a teammate's role chip on Team to make them admin or member, or remove them. Admins share the join code, CEO link and Slack; members work on projects and tasks.
 
 Press **C** anywhere to add a task.

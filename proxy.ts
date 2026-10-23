@@ -11,5 +11,5 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Everything but auth pages, the public CEO link, API routes and static files.
-  matcher: ["/((?!api|_next/static|_next/image|sign-in|sign-up|r/|.*\\..*).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|sign-in|r/|.*\\..*).*)"],
 }

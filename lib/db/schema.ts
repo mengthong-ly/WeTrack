@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm"
 import {
   boolean,
+  customType,
   date,
   index,
   integer,
@@ -234,6 +235,31 @@ export const workspaceIntegration = pgTable("workspace_integration", {
   slackWebhookUrl: text("slack_webhook_url"),
 })
 
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" })
+
+// One point of feedback on a task: a note, a screenshot, or both, for whoever the task was assigned
+// to when it was written. The image lives in the row (screenshots are shrunk to WebP in the browser
+// first), so there is no file store to back up; lists select every column but `image`.
+// ponytail: images in Postgres, move to object storage if the table passes a few GB.
+export const feedback = pgTable(
+  "feedback",
+  {
+    id: id(),
+    organizationId: orgId(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
+    recipientId: text("recipient_id").references(() => user.id, { onDelete: "set null" }),
+    body: text("body"),
+    image: bytea("image"),
+    imageType: text("image_type"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("feedback_org_idx").on(t.organizationId, t.createdAt), index("feedback_task_idx").on(t.taskId)]
+)
+
 export const projectRelations = relations(project, ({ many }) => ({
   tasks: many(task),
   releases: many(release),
@@ -264,6 +290,12 @@ export const commentRelations = relations(comment, ({ one }) => ({
 export const meetingRelations = relations(meeting, ({ one }) => ({
   task: one(task, { fields: [meeting.taskId], references: [task.id] }),
   createdBy: one(user, { fields: [meeting.createdById], references: [user.id] }),
+}))
+
+export const feedbackRelations = relations(feedback, ({ one }) => ({
+  task: one(task, { fields: [feedback.taskId], references: [task.id] }),
+  author: one(user, { fields: [feedback.authorId], references: [user.id] }),
+  recipient: one(user, { fields: [feedback.recipientId], references: [user.id] }),
 }))
 
 export type Task = typeof task.$inferSelect

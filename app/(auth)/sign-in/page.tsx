@@ -5,5 +5,5 @@ import { AuthForm } from "@/components/auth-form"
 export const metadata: Metadata = { title: "Sign in" }
 
 export default function SignInPage() {
-  return <AuthForm mode="sign-in" google={!!process.env.GOOGLE_CLIENT_ID} />
+  return <AuthForm google={!!process.env.GOOGLE_CLIENT_ID} />
 }

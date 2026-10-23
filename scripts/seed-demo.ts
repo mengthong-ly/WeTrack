@@ -3,15 +3,14 @@
 //   createdb wetrack_demo
 //   DATABASE_URL=postgres://localhost:5432/wetrack_demo pnpm exec drizzle-kit migrate
 //   DATABASE_URL=postgres://localhost:5432/wetrack_demo pnpm exec tsx scripts/seed-demo.ts
-// Sign in as demo@wetrack.test / demo-password-123. The CEO link is printed at the end.
+// Sign in as demo@wetrack.test (the code lands in Mailpit). The CEO link is printed at the end.
 // Refuses to run unless the database name contains "demo", and wipes that database's data first.
 import { createHash } from "node:crypto"
 
-import { hashPassword } from "better-auth/crypto"
 import { sql } from "drizzle-orm"
 
 import { db } from "../lib/db"
-import { account, activity, member, organization, project, shareLink, subtask, task, user } from "../lib/db/schema"
+import { activity, member, organization, project, shareLink, subtask, task, user } from "../lib/db/schema"
 import type { TaskPriority, TaskStatus } from "../lib/db/enums"
 
 if (!/demo/.test(new URL(process.env.DATABASE_URL!).pathname)) throw new Error("DATABASE_URL must point at a *demo* database.")
@@ -36,15 +35,6 @@ for (const p of people) {
   await db.insert(user).values({ id: p.id, name: p.name, email: p.email, emailVerified: true, createdAt: new Date(), updatedAt: new Date() })
   await db.insert(member).values({ id: `m-${p.id}`, organizationId: org.id, userId: p.id, role: p.role, createdAt: new Date() })
 }
-await db.insert(account).values({
-  id: "acc-demo",
-  accountId: "u-demo",
-  providerId: "credential",
-  userId: "u-demo",
-  password: await hashPassword("demo-password-123"),
-  createdAt: new Date(),
-  updatedAt: new Date(),
-})
 
 const projects = await db
   .insert(project)

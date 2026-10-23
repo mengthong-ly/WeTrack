@@ -9,6 +9,7 @@ import {
   activity,
   clientUpdate,
   comment,
+  feedback,
   meeting,
   member,
   project,
@@ -276,4 +277,19 @@ export function bannerMeetings(rows: MeetingRow[], viewer: Viewer) {
     calendarUrl: canJoin(m, viewer) ? m.calendarUrl : null,
     canceledAt: m.canceledAt?.toISOString() ?? null,
   }))
+}
+
+// Every point but the screenshot bytes, newest first. ponytail: last 500, page it if teams outgrow that.
+export function listFeedback(orgId: string) {
+  return db.query.feedback.findMany({
+    columns: { image: false },
+    where: eq(feedback.organizationId, orgId),
+    with: {
+      task: { columns: { id: true, title: true }, with: { project: { columns: { name: true, color: true } } } },
+      author: { columns: { id: true, name: true, image: true } },
+      recipient: { columns: { id: true, name: true, image: true } },
+    },
+    orderBy: desc(feedback.createdAt),
+    limit: 500,
+  })
 }

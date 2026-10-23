@@ -1,36 +1,53 @@
 "use client"
 
-import Link from "next/link"
+import { motion } from "motion/react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 import { Label } from "@/components/ui/label"
 import { authClient } from "@/lib/auth-client"
 
-type Props = { mode: "sign-in" | "sign-up"; google: boolean }
-
-export function AuthForm({ mode, google }: Props) {
+// Email, then the 6-digit code we send to it. The first sign-in creates the account, so there's
+// no separate sign-up.
+export function AuthForm({ google }: { google: boolean }) {
   const router = useRouter()
+  const [email, setEmail] = useState("")
+  const [sent, setSent] = useState(false)
+  const [code, setCode] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const [sentTo, setSentTo] = useState<string | null>(null)
 
-  async function onSubmit(form: FormData) {
+  async function send() {
     setPending(true)
     setError(null)
-    const values = {
-      email: String(form.get("email")),
-      password: String(form.get("password")),
-      name: String(form.get("name") ?? ""),
+    const res = await authClient.emailOtp.sendVerificationOtp({ email, type: "sign-in" })
+    setPending(false)
+    if (res.error) return setError(res.error.status === 429 ? "Too many codes. Wait a minute and try again." : (res.error.message ?? "Something went wrong."))
+    if (sent) toast.success("New code sent")
+    setSent(true)
+    setCode("")
+  }
+
+  async function verify(otp = code) {
+    if (otp.length !== 6) return
+    setPending(true)
+    setError(null)
+    // name only applies to a new account; they can change it later.
+    const res = await authClient.signIn.emailOtp({ email, otp, name: email.split("@")[0] })
+    if (res.error) {
+      setPending(false)
+      setCode("")
+      return setError(
+        res.error.code === "OTP_EXPIRED" ? "That code has expired. Send a new one."
+        : res.error.code === "TOO_MANY_ATTEMPTS" ? "Too many tries. Send a new code."
+        : res.error.code === "INVALID_OTP" ? "That code didn't work. Check it and try again."
+        : (res.error.message ?? "Something went wrong."),
+      )
     }
-    const res = mode === "sign-up" ? await authClient.signUp.email(values) : await authClient.signIn.email(values)
-    if (res.error || mode === "sign-up") setPending(false)
-    // Unconfirmed accounts can't sign in; Better Auth has just emailed them a fresh link.
-    if (res.error?.status === 403) return setError("Confirm your email first. We just sent you a new link.")
-    if (res.error) return setError(res.error.message ?? "Something went wrong.")
-    if (mode === "sign-up") return setSentTo(values.email)
     // Home sends anyone without a workspace on to /onboarding.
     router.push("/")
     router.refresh()
@@ -46,67 +63,102 @@ export function AuthForm({ mode, google }: Props) {
     }
   }
 
-  if (sentTo) {
-    return (
-      <div className="flex flex-col gap-2">
-        <h1 className="text-xl font-medium">Check your email</h1>
-        <p className="text-sm text-muted-foreground">
-          We sent a link to {sentTo}. Open it to confirm your email and sign in.
-        </p>
-      </div>
-    )
-  }
+  const errorLine = error && <p className="text-sm text-destructive" role="alert">{error}</p>
 
   return (
-    <form action={onSubmit} className="flex flex-col gap-4">
-      <h1 className="text-xl font-medium">{mode === "sign-up" ? "Create your account" : "Welcome back"}</h1>
-      {google && (
-        <>
-          <Button variant="outline" size="lg" className="h-10" disabled={pending} onClick={withGoogle}>
-            <GoogleIcon />
-            Continue with Google
-          </Button>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="h-px flex-1 bg-foreground/10" />
-            or with email
-            <span className="h-px flex-1 bg-foreground/10" />
+    <motion.div key={sent ? "code" : "email"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+      {sent ? (
+        <form action={() => verify()} className="flex flex-col gap-4">
+          <div>
+            <h1 className="text-xl font-medium">Check your email</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              We sent a 6-digit code to <span className="wrap-anywhere text-foreground">{email}</span>.
+            </p>
           </div>
-        </>
+          <InputOTP
+            maxLength={6}
+            pattern="^\d+$"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            aria-label="Sign-in code"
+            value={code}
+            onChange={(v) => {
+              setCode(v)
+              setError(null)
+            }}
+            onComplete={verify}
+            // readOnly, not disabled: a disabled field drops focus, and a wrong code is retyped at once.
+            readOnly={pending}
+            containerClassName="justify-center"
+          >
+            <InputOTPGroup>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <InputOTPSlot key={i} index={i} aria-invalid={!!error} className="tabular size-12 text-lg" />
+              ))}
+            </InputOTPGroup>
+          </InputOTP>
+          {errorLine}
+          <Button type="submit" size="lg" className="h-10" disabled={pending || code.length !== 6}>
+            {pending ? "One moment…" : "Sign in"}
+          </Button>
+          <div className="flex justify-between gap-2 text-sm">
+            <Button
+              variant="link"
+              className="h-auto p-0 text-muted-foreground"
+              onClick={() => {
+                setSent(false)
+                setError(null)
+              }}
+            >
+              Use another email
+            </Button>
+            <Button variant="link" className="h-auto p-0 text-muted-foreground" disabled={pending} onClick={send}>
+              Resend code
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <form action={send} className="flex flex-col gap-4">
+          <div>
+            <h1 className="text-xl font-medium">Welcome to WeTrack</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Sign in or create an account with your email.</p>
+          </div>
+          {google && (
+            <>
+              <Button variant="outline" size="lg" className="h-10" disabled={pending} onClick={withGoogle}>
+                <GoogleIcon />
+                Continue with Google
+              </Button>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="h-px flex-1 bg-foreground/10" />
+                or with email
+                <span className="h-px flex-1 bg-foreground/10" />
+              </div>
+            </>
+          )}
+          <div className="grid gap-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              inputMode="email"
+              required
+              maxLength={254}
+              autoComplete="email"
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value.trim())}
+              className="h-10"
+            />
+          </div>
+          {errorLine}
+          <Button type="submit" size="lg" className="h-10" disabled={pending}>
+            {pending ? "Sending…" : "Send code"}
+          </Button>
+        </form>
       )}
-      {mode === "sign-up" && (
-        <div className="grid gap-1.5">
-          <Label htmlFor="name">Name</Label>
-          <Input id="name" name="name" required autoComplete="name" className="h-10" />
-        </div>
-      )}
-      <div className="grid gap-1.5">
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" required autoComplete="email" className="h-10" />
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="password">Password</Label>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          required
-          minLength={8}
-          autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
-          className="h-10"
-        />
-      </div>
-      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-      <Button type="submit" size="lg" className="h-10" disabled={pending}>
-        {pending ? "One moment…" : mode === "sign-up" ? "Create account" : "Sign in"}
-      </Button>
-      <p className="text-center text-sm text-muted-foreground">
-        {mode === "sign-up" ? (
-          <>Already have an account? <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-in">Sign in</Link></>
-        ) : (
-          <>New here? <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-up">Create an account</Link></>
-        )}
-      </p>
-    </form>
+    </motion.div>
   )
 }
 

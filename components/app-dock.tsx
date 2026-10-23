@@ -1,6 +1,6 @@
 "use client"
 
-import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, PlusIcon, UsersIcon } from "lucide-react"
+import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, MessageSquareQuoteIcon, PlusIcon, UsersIcon } from "lucide-react"
 import { motion } from "motion/react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
@@ -10,6 +10,7 @@ import { Suspense, useEffect, useState } from "react"
 import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { spring } from "@/components/motion-bits"
 import type { NewTaskPreset } from "@/components/new-task-dialog"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MemberLite, ProjectLite } from "@/lib/options"
 import { cn, isTyping, whenIdle } from "@/lib/utils"
 
@@ -23,6 +24,7 @@ const NAV = [
   { href: "/workspace", label: "Workspace", icon: BoxIcon },
   { href: "/tasks", label: "Tasks", icon: ListChecksIcon },
   { href: "/projects", label: "Projects", icon: FolderIcon },
+  { href: "/feedback", label: "Feedback", icon: MessageSquareQuoteIcon },
   { href: "/team", label: "Team", icon: UsersIcon },
 ]
 
@@ -48,45 +50,68 @@ function Dock({ pathname }: { pathname: string | null }) {
       <div className="pointer-events-auto flex items-center gap-3">
         <nav
           aria-label="Main"
-          className="flex items-center gap-1 rounded-full bg-card/85 p-1.5 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl"
+          className="flex items-center gap-0.5 rounded-full bg-card/85 p-1.5 sm:gap-1 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl"
         >
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : !!pathname?.startsWith(href)
             return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "relative flex h-11 items-center gap-2 rounded-full px-3.5 text-sm transition-colors sm:px-4",
-                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="dock-pill"
-                    className="absolute inset-0 rounded-full bg-muted"
-                    transition={spring}
-                  />
-                )}
-                <Icon className="relative size-5" />
-                {/* Icons only on phones (five fit at 375px); the active label shows from sm. Always named for screen readers. */}
-                <span className={active ? "relative max-sm:sr-only" : "sr-only"}>{label}</span>
-              </Link>
+              // The name shows on hover and focus. Not for the active link: its label is already on screen from sm.
+              <Tooltip key={href} disabled={active}>
+                <TooltipTrigger
+                  delay={400}
+                  render={
+                    <Link
+                      href={href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "relative flex h-11 items-center gap-2 rounded-full px-3 text-sm transition-[color,scale] active:scale-95 sm:px-4",
+                        active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    />
+                  }
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="dock-pill"
+                      className="absolute inset-0 rounded-full bg-muted"
+                      transition={spring}
+                    />
+                  )}
+                  <Icon className="relative size-5" />
+                  {/* Icons only on phones (six fit at 375px); the active label shows from sm. Always named for screen readers. */}
+                  <span className={active ? "relative max-sm:sr-only" : "sr-only"}>{label}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={10} className="rounded-full px-3 py-1.5">
+                  {label}
+                </TooltipContent>
+              </Tooltip>
             )
           })}
         </nav>
-        <motion.button
-          type="button"
-          onClick={() => window.dispatchEvent(new Event(NEW_TASK_EVENT))}
-          whileHover={{ scale: 1.06 }}
-          whileTap={{ scale: 0.94 }}
-          transition={spring}
-          aria-label="New task"
-          className="grid size-13 place-items-center rounded-full bg-foreground sm:size-14 text-background shadow-xl shadow-black/20 focus-visible:ring-4 focus-visible:ring-ring/50 focus-visible:outline-none"
-        >
-          <PlusIcon className="size-6" />
-        </motion.button>
+        <Tooltip>
+          <TooltipTrigger
+            delay={400}
+            render={
+              <motion.button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event(NEW_TASK_EVENT))}
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.94 }}
+                transition={spring}
+                aria-label="New task"
+                className="grid size-13 place-items-center rounded-full bg-foreground sm:size-14 text-background shadow-xl shadow-black/20 focus-visible:ring-4 focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            }
+          >
+            <PlusIcon className="size-6" />
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={10} className="rounded-full py-1.5 pr-1.5 pl-3">
+            New task
+            <kbd data-slot="kbd" className="grid h-5 min-w-5 place-items-center bg-background/15 px-1 font-sans text-[11px]">
+              C
+            </kbd>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )

@@ -135,8 +135,11 @@ canvas (bg-background, haze)
     └── cards (bg-muted/80, rounded-card): grey on white, the taskdoo inversion
 ```
 
-The **dock** (floating pill nav and dark round "+" FAB) is fixed at the bottom on every signed-in page. Its five
-links are icons only on phones; the active one shows its label from `sm`. Every link keeps an `sr-only` label.
+The **dock** (floating pill nav and dark round "+" FAB) is fixed at the bottom on every signed-in page. Its six
+links (Home, Workspace, Tasks, Projects, Feedback, Team) are icons only on phones (`px-3`, `gap-0.5`, so they fit at
+375px); the active one shows its label from `sm`. Every link keeps an `sr-only` label and has a shadcn `Tooltip` with
+its name (`side="top"`, `sideOffset={10}`, `rounded-full`, trigger `delay={400}`, then neighbours open instantly);
+the active link's tooltip is `disabled` since its label is on screen. The FAB's tooltip reads "New task" with a `C` kbd.
 Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the header.
 
 ---
@@ -183,6 +186,7 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Join code (Team, owners and admins) | `JoinCodeCard`: the code in a mono `bg-card` pill inside a `rounded-panel bg-muted/70` box with `CopyButton`; *Create code* / *Make a new code* (`confirm()`) / *Turn off*, then "Expires in …". Code rules in `lib/join-code.ts` (12 characters, `XXXX-XXXX-XXXX`) | `components/join-code-card.tsx` |
 | Someone's role | `RoleMenu`: the `bg-muted` capitalised role chip. For the owner on anyone else's row it opens a `DropdownMenu`: "Role" radio items (label + muted hint, close on pick, optimistic) and a destructive "Remove from team" (`confirm()`) | `components/role-menu.tsx` |
 | Loading a page | A `loading.tsx` per area, built from `components/page-skeleton.tsx`: `PageSkeleton` (signed-in pages, `/r/[token]`: title and subtitle pills on `bg-card/70`, four `rounded-tile bg-card/60` tiles, a `rounded-sheet bg-card` sheet of `rounded-card bg-muted/60` rows), `DetailSkeleton` (the workspace's task sheet), `HeaderToolsSkeleton` (the header's search and account shapes, no pulse). Skeletons fade in after 150ms (ease-out-expo) so fast navigations never flash them, pulse with shadcn `Skeleton`, and stop pulsing with reduced motion. `/workspace` shows the scene's own Hub poster ("Setting up your workspace") in the scene's place instead, so the hand-off is seamless; `/onboarding` shows the GetStarted shape inside the auth card | `components/page-skeleton.tsx`, `app/**/loading.tsx` |
+| Feedback on someone's work | `FeedbackBoard` at `/feedback` (dock: Feedback, before Team). `PillTabs` For me / From me / Everyone (open counts, `.tabular`) and Open / Fixed, plus a dark "Give feedback" pill. One `rounded-sheet` holds a section per task (`ProjectDot` + task link + "For *name*" avatar), newest first, each point a `rounded-row bg-muted/60` row: round checkbox (as `TaskCard`) marks it fixed (optimistic; toast "Marked as fixed" with Undo, since it leaves the Open list), the note, the screenshot as a `h-44 sm:h-56 object-cover object-top rounded-xl` button that opens a `rounded-tile` lightbox dialog, then author + time. Row menu "Delete point" (`destructive`, `confirm()`) for the author, owners and admins. **Give feedback** is a create dialog: `text-2xl font-light` title, properties panel (Task `Pick` of the 100 most recently touched tasks; For = the task's assignee, read-only), then one `rounded-panel bg-muted/60` box per point: borderless textarea + "Add screenshot" pill (file input). **Paste** (⌘V) or **drop** an image anywhere in a point to attach it; the drop target gets `ring-2 ring-foreground/15`. "Add point" adds another, ⌘/Ctrl + Enter sends. Screenshots are shrunk in the browser (≤ 2000px wide, WebP, JPEG on Safari) and served only to the workspace from `/api/feedback/[id]` | `components/feedback.tsx`, `app/(app)/feedback` |
 | Primitive controls | `components/ui/*` (shadcn, Base UI) | `components/ui` |
 
 Recurring one-offs to copy, not reinvent:
@@ -196,6 +200,8 @@ Recurring one-offs to copy, not reinvent:
   right. Rows are `role="checkbox"` buttons with `aria-checked`; the popover stays open while you tick (see `NewMeetingDialog`).
 - **Editor toolbar**: `size-8` round icon buttons, muted; pressed = `bg-foreground text-background`; groups split by a
   `h-4 w-px bg-foreground/10` rule. Buttons `preventDefault` on mousedown so the selection stays.
+- **Tooltip**: shadcn `Tooltip` (Base UI) for icon-only controls; `rounded-full px-3 py-1.5`, a `kbd` inside gets
+  `data-slot="kbd"` and `bg-background/15`. Compose the trigger with `render={<Link …/>}` or `render={<motion.button …/>}`.
 - **Shortcut hint**: `kbd` chips `h-5 min-w-5 rounded-md bg-muted text-[11px]`, hidden below `sm`.
 - **Table rows** (inside a sheet): `h-11` cells, `border-t border-foreground/5` hairlines (the one place lines are
   allowed: rows on one surface, never between surfaces), opaque `bg-card` with `group-hover:bg-muted` so the pinned
@@ -213,8 +219,11 @@ Recurring one-offs to copy, not reinvent:
   `transition-[background-color,scale]`.
 - **Auth card** (`AuthForm`, `GetStarted`): `(auth)` layout card, `h-10` controls. "Continue with Google" is an
   `outline` button above an "or with email" divider (`h-px flex-1 bg-foreground/10` on either side). Google's mark keeps
-  its own colours: third-party brand marks are the one exception to "no raw hex". After a password sign-up the card
-  swaps to "Check your email" (heading + one muted line naming the address).
+  its own colours: third-party brand marks are the one exception to "no raw hex". Email sign-in is two steps in one
+  card (0.2s fade between them): email + "Send code", then "Check your email" (heading + one muted line naming the
+  address), six joined `size-12` `InputOTP` slots (`components/ui/input-otp.tsx`) that sign in on the sixth digit, the
+  `h-10` "Sign in" button, and "Use another email" / "Resend code" as muted link buttons. A wrong code clears the slots,
+  keeps focus there (`readOnly` while checking, never `disabled`) and shows the one-line error.
 - **Stretched link card**: title `<Link>` with `after:absolute after:inset-0`. Inner interactive elements get `relative z-10`.
 
 ---

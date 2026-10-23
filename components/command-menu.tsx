@@ -7,6 +7,7 @@ import {
   LayoutGridIcon,
   ListChecksIcon,
   type LucideIcon,
+  MessageSquareQuoteIcon,
   MoonIcon,
   PlusIcon,
   SearchIcon,
@@ -90,6 +91,7 @@ export function CommandMenu({
       { id: "tasks", group: "Go to", label: "Tasks", icon: icon(ListChecksIcon), keywords: "list", run: go("/tasks") },
       { id: "board", group: "Go to", label: "Board", icon: icon(KanbanIcon), keywords: "kanban", run: go("/tasks?view=board") },
       { id: "projects", group: "Go to", label: "Projects", icon: icon(FolderIcon), keywords: "clients", run: go("/projects") },
+      { id: "feedback", group: "Go to", label: "Feedback", icon: icon(MessageSquareQuoteIcon), keywords: "review notes screenshots", run: go("/feedback") },
       { id: "team", group: "Go to", label: "Team", icon: icon(UsersIcon), keywords: "workload people", run: go("/team") },
       ...projects.map((p) => ({
         id: `p-${p.id}`,
