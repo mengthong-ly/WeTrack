@@ -42,9 +42,10 @@ CRON_SECRET=$(openssl rand -hex 24)
 APP_TIMEZONE=Asia/Phnom_Penh
 
 # Fill in, then: sudo supervisorctl restart wetrack-staging
-SMTP_HOST=
+# Resend SMTP: SMTP_PASS is a Resend API key (re_…); EMAIL_FROM's domain must be verified in Resend
+SMTP_HOST=smtp.resend.com
 SMTP_PORT=465
-SMTP_USER=
+SMTP_USER=resend
 SMTP_PASS=
 EMAIL_FROM="WeTrack <no-reply@weshopkh.com>"
 # Google redirect URI: https://$HOST/api/auth/callback/google

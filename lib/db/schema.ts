@@ -182,6 +182,19 @@ export const shareLink = pgTable("share_link", {
   createdAt: createdAt(),
 })
 
+// The code teammates type on /onboarding to join. One live code per workspace: making a new one
+// replaces the row, turning it off deletes it. Unlike the share link it is stored as-is so owners
+// can read it again to pass on; it expires and only ever lets someone in as a member.
+export const joinCode = pgTable("join_code", {
+  organizationId: text("organization_id")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+})
+
 // One row per workspace per digest day. The cron claims the row before sending, so a duplicate
 // delivery of the same run finds it taken and sends nothing.
 export const digestSent = pgTable(

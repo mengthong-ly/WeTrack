@@ -13,14 +13,14 @@ working on, for which client, when is it due, and when does it reach staging and
 | Topic | Decision |
 |---|---|
 | Data | Own Postgres database; WeTrack fully replaces the sheet (one-off import script). |
-| Editors | Small team — everyone signs in, tasks have an assignee. Open sign-up (email + password or Google); teammates join by invite. |
+| Editors | Small team — everyone signs in, tasks have an assignee. Open sign-up (email + password or Google); teammates join with a join code from Team. |
 | CEO access | Private, revocable read-only share link (no account). _Milestone 2._ |
 | Client updates | Internal checklist per project of changes not yet reported, with a drafted copy-paste message. Clients never see WeTrack. _Milestone 2._ |
 | Stack | Next.js 16 App Router + Server Actions, Drizzle + Postgres, Better Auth (email/password + organization plugin), SMTP email (Mailpit local, Resend prod), shadcn/ui neutral on Base UI, Motion. Self-hosted on the staging droplet (`deploy/`). |
 
 ## Data model
 
-- **Better Auth**: `user`, `session`, `account`, `verification`, `organization` (the workspace), `member` (owner/admin/member), `invitation`.
+- **Better Auth**: `user`, `session`, `account`, `verification`, `organization` (the workspace), `member` (owner/admin/member), `invitation` (unused: email invites are off). `join_code`: one live code per workspace.
 - **project** — a client or product (name, colour, archived). A project _is_ the client.
 - **task** — project, optional release, assignee, title, description, type (development/design/bug fix), priority (urgent/normal/no rush), status (not started/in progress/review/blocked/completed), progress 0–100, start date, deadline, completed at.
 - **subtask**, **comment** — per task.
@@ -43,5 +43,5 @@ Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule heal
 ## Security notes
 
 - Every server action re-checks the session and that the target row belongs to the caller's workspace.
-- Sign-up is open (email + password, or Google). Workspaces are isolated by `organizationId`, so a stranger only ever sees their own empty workspace. Invites are matched by email on `/onboarding`, so every signed-in email must be proven: password accounts can't sign in until they open the confirmation link (`requireEmailVerification`), Google emails arrive verified, and accepting an invite checks `emailVerified` (`requireEmailVerificationOnInvitation`). Accounts made before open sign-up that belong to a workspace were marked verified by migration 0004 (they came through the setup link or an emailed invite id). To limit invite-email abuse, each person can create one workspace and each workspace can hold 20 pending invites. Better Auth won't link Google to an existing account whose email isn't verified (`requireLocalEmailVerified`), so pre-registering someone's address can't take over their Google sign-in.
+- Sign-up is open (email + password, or Google). Workspaces are isolated by `organizationId`, so a stranger only ever sees their own empty workspace. A signed-in user with no team sees only `/onboarding`: create a team (they become its owner) or type a join code. A code is 12 characters (2^60) from an unambiguous alphabet, lives 7 days, is stored as-is so owners can read it again, and joins as member. Roles are enforced by Better Auth (`lib/auth.ts`): only the owner can change roles or remove people; admins share the join code, CEO link and Slack; nobody can send email invites, so open sign-up can't send mail from us. Each person can create one workspace. Better Auth won't link Google to an existing account whose email isn't verified (`requireLocalEmailVerified`), so pre-registering someone's address can't take over their Google sign-in.
 - Share-link tokens are stored as sha256 hashes, shown once, one live link per workspace; the page is `noindex` and `no-referrer`.

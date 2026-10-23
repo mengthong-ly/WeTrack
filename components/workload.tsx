@@ -31,7 +31,7 @@ export function Workload<M extends Person>({
   const grid = cn(
     "grid items-center gap-x-4",
     trailing
-      ? "grid-cols-[auto_minmax(0,1fr)_5rem] sm:grid-cols-[auto_minmax(0,1fr)_repeat(4,6rem)_5rem]"
+      ? "grid-cols-[auto_minmax(0,1fr)_6rem] sm:grid-cols-[auto_minmax(0,1fr)_repeat(4,6rem)_6rem]"
       : "grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_repeat(4,6rem)]"
   )
   return (

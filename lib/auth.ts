@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { nextCookies } from "better-auth/next-js"
 import { organization } from "better-auth/plugins"
+import { adminAc, defaultAc, memberAc, ownerAc } from "better-auth/plugins/organization/access"
 
 import { db } from "@/lib/db"
 import * as schema from "@/lib/db/schema"
@@ -12,9 +13,8 @@ const google = process.env.GOOGLE_CLIENT_ID
   ? { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET! }
   : undefined
 
-// Anyone can sign up. A new user then joins a team they were invited to, or creates a workspace
-// (app/(auth)/onboarding). Invites are matched by email, so every signed-in email must be proven:
-// password accounts confirm by link before their first sign-in, and Google reports verified emails.
+// Anyone can sign up. A new user then creates a workspace or joins one with its join code
+// (app/(auth)/onboarding). Password accounts confirm their email by link before their first sign-in.
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   emailAndPassword: { enabled: true, requireEmailVerification: true },
@@ -32,18 +32,15 @@ export const auth = betterAuth({
   account: { accountLinking: { enabled: true, allowDifferentEmails: true } },
   plugins: [
     organization({
-      requireEmailVerificationOnInvitation: true,
-      // Open sign-up means anyone can send invite emails from us: one workspace per person (the app
-      // only uses the first anyway) and at most 20 pending invites per workspace.
-      organizationLimit: 1,
-      invitationLimit: 20,
-      async sendInvitationEmail(data) {
-        await sendEmail(
-          data.email,
-          `${data.inviter.user.name} invited you to ${data.organization.name} on WeTrack`,
-          `Join ${data.organization.name} on WeTrack. Sign up or sign in as ${data.email}:\n\n${process.env.BETTER_AUTH_URL}/sign-up\n\nThe invite expires in 48 hours.`
-        )
+      // The owner alone manages people (roles, removal); admins share the join code, CEO link and
+      // Slack. Email invites are off for everyone: teammates join with the code.
+      roles: {
+        owner: defaultAc.newRole({ ...ownerAc.statements, invitation: [] }),
+        admin: defaultAc.newRole({ ...adminAc.statements, member: [], invitation: [] }),
+        member: memberAc,
       },
+      // One workspace per person: the app only uses the first anyway.
+      organizationLimit: 1,
     }),
     nextCookies(),
   ],

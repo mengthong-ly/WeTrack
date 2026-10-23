@@ -1,6 +1,6 @@
 "use server"
 
-import { and, eq, inArray, isNull, max } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, max } from "drizzle-orm"
 import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -12,6 +12,7 @@ import {
   activity,
   clientUpdate,
   comment,
+  joinCode,
   meeting,
   member,
   project,
@@ -25,6 +26,7 @@ import {
   workspaceIntegration,
 } from "@/lib/db/schema"
 import { createEvent, deleteEvent, googleToken } from "@/lib/google"
+import { JOIN_CODE_DAYS, newJoinCode, normalizeJoinCode } from "@/lib/join-code"
 import {
   googleError,
   joinUrl,
@@ -77,35 +79,95 @@ export async function createWorkspace(name: string): Promise<Result> {
   const session = await getSession()
   if (!session) redirect("/sign-in")
   const parsed = z.string().trim().min(2).max(60).safeParse(name)
-  if (!parsed.success) return { error: "Workspace name must be 2–60 characters." }
+  if (!parsed.success) return { error: "Team name must be 2–60 characters." }
   const slug = `${parsed.data.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${crypto.randomUUID().slice(0, 6)}`
   await auth.api.createOrganization({ headers: await headers(), body: { name: parsed.data, slug } })
   redirect("/")
 }
 
-export async function inviteMember(email: string, role: "member" | "admin"): Promise<Result> {
+// ---------- Join code & people ----------
+
+export async function createJoinCode(): Promise<Result> {
   const me = await requireMember()
-  if (me.role === "member") return { error: "Only owners and admins can invite." }
-  const parsed = z.email().safeParse(email.trim().toLowerCase())
-  if (!parsed.success) return { error: "Enter a valid email." }
+  if (me.role === "member") return { error: "Only owners and admins can share a join code." }
+  const row = {
+    code: newJoinCode(),
+    createdById: me.user.id,
+    expiresAt: new Date(Date.now() + JOIN_CODE_DAYS * 86_400_000),
+    createdAt: new Date(),
+  }
+  await db
+    .insert(joinCode)
+    .values({ organizationId: me.orgId, ...row })
+    .onConflictDoUpdate({ target: joinCode.organizationId, set: row })
+  refresh()
+  return {}
+}
+
+export async function turnOffJoinCode(): Promise<Result> {
+  const me = await requireMember()
+  if (me.role === "member") return { error: "Only owners and admins can share a join code." }
+  await db.delete(joinCode).where(eq(joinCode.organizationId, me.orgId))
+  refresh()
+  return {}
+}
+
+export async function joinWithCode(input: string): Promise<Result> {
+  const session = await getSession()
+  if (!session) redirect("/sign-in")
+  const code = normalizeJoinCode(input)
+  if (!code) return { error: "A join code is 12 letters and numbers, like ABCD-2345-WXYZ." }
+  if (await db.query.member.findFirst({ where: eq(member.userId, session.user.id) })) redirect("/")
+  const row = await db.query.joinCode.findFirst({
+    where: and(eq(joinCode.code, code), gt(joinCode.expiresAt, new Date())),
+  })
+  if (!row) return { error: "That code doesn't work. It may have expired: ask your team for a new one." }
   try {
-    await auth.api.createInvitation({
+    await auth.api.addMember({ body: { userId: session.user.id, organizationId: row.organizationId, role: "member" } })
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not join the team." }
+  }
+  redirect("/")
+}
+
+// Owners manage people. Better Auth checks the same rule (lib/auth.ts); this gives a clear message.
+async function managedMember(userId: string) {
+  const me = await requireMember()
+  if (me.role !== "owner") return { error: "Only the owner can manage people." }
+  const target = await db.query.member.findFirst({
+    where: and(eq(member.organizationId, me.orgId), eq(member.userId, userId)),
+  })
+  if (!target || target.role === "owner") return { error: "Teammate not found." }
+  return { me, target }
+}
+
+export async function setMemberRole(userId: string, role: "admin" | "member"): Promise<Result> {
+  const parsed = z.enum(["admin", "member"]).safeParse(role)
+  if (!parsed.success) return { error: "Pick admin or member." }
+  const found = await managedMember(userId)
+  if ("error" in found) return found
+  try {
+    await auth.api.updateMemberRole({
       headers: await headers(),
-      body: { email: parsed.data, role, organizationId: me.orgId, resend: true },
+      body: { memberId: found.target.id, role: parsed.data, organizationId: found.me.orgId },
     })
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Could not send the invite." }
+    return { error: e instanceof Error ? e.message : "Could not change the role." }
   }
   refresh()
   return {}
 }
 
-export async function cancelInvite(invitationId: string): Promise<Result> {
-  await requireMember()
+export async function removeMember(userId: string): Promise<Result> {
+  const found = await managedMember(userId)
+  if ("error" in found) return found
   try {
-    await auth.api.cancelInvitation({ headers: await headers(), body: { invitationId } })
+    await auth.api.removeMember({
+      headers: await headers(),
+      body: { memberIdOrEmail: found.target.id, organizationId: found.me.orgId },
+    })
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Could not cancel the invite." }
+    return { error: e instanceof Error ? e.message : "Could not remove them." }
   }
   refresh()
   return {}

@@ -1,14 +1,16 @@
 import { and, eq, gt } from "drizzle-orm"
 import type { Metadata } from "next"
 
-import { CancelInvite, InviteForm } from "@/components/invite-form"
+import { JoinCodeCard } from "@/components/join-code-card"
 import { Reveal } from "@/components/motion-bits"
+import { RoleMenu } from "@/components/role-menu"
 import { ShareLinkCard } from "@/components/share-link-card"
 import { SlackCard } from "@/components/slack-card"
 import { Workload } from "@/components/workload"
 import { workload } from "@/lib/dashboard"
 import { db } from "@/lib/db"
-import { invitation } from "@/lib/db/schema"
+import { joinCode } from "@/lib/db/schema"
+import { formatJoinCode } from "@/lib/join-code"
 import { activeShareLink, listMembers, listTasks } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
@@ -20,14 +22,16 @@ export const metadata: Metadata = { title: "Team" }
 export default async function TeamPage() {
   const me = await requireMember()
   const canInvite = me.role !== "member"
-  const [members, tasks, link, slack, invites] = await Promise.all([
+  const [members, tasks, link, slack, code] = await Promise.all([
     listMembers(me.orgId),
     listTasks(me.orgId),
     activeShareLink(me.orgId),
     canInvite ? hasSlack(me.orgId) : false,
-    db.query.invitation.findMany({
-      where: and(eq(invitation.organizationId, me.orgId), eq(invitation.status, "pending"), gt(invitation.expiresAt, new Date())),
-    }),
+    canInvite
+      ? db.query.joinCode.findFirst({
+          where: and(eq(joinCode.organizationId, me.orgId), gt(joinCode.expiresAt, new Date())),
+        })
+      : undefined,
   ])
 
   return (
@@ -43,26 +47,14 @@ export default async function TeamPage() {
           rows={workload(members, tasks, todayISO())}
           href={(id) => `/tasks?person=${id}`}
           sub={(m) => (m.id === me.user.id ? `${m.email} · you` : m.email)}
-          trailing={(m) => <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">{m.role}</span>}
+          trailing={(m) => <RoleMenu person={m} editable={me.role === "owner"} />}
         />
       </Reveal>
 
       {canInvite && (
         <Reveal index={2} className="rounded-tile bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-lg">Invite a teammate</h2>
-          <InviteForm />
-          {invites.length > 0 && (
-            <ul className="mt-5 flex flex-col divide-y">
-              {invites.map((inv) => (
-                <li key={inv.id} className="flex items-center justify-between py-2.5 text-sm">
-                  <span>
-                    {inv.email} <span className="text-muted-foreground">· {inv.role ?? "member"} · pending</span>
-                  </span>
-                  <CancelInvite id={inv.id} />
-                </li>
-              ))}
-            </ul>
-          )}
+          <h2 className="mb-2 text-lg">Join code</h2>
+          <JoinCodeCard active={code ? { code: formatJoinCode(code.code), expires: ago(code.expiresAt) } : null} />
         </Reveal>
       )}
 
