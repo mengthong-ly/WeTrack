@@ -17,7 +17,7 @@ export const requireMember = cache(async () => {
   const session = await getSession()
   if (!session) redirect("/sign-in")
   const [m] = await db
-    .select({ orgId: member.organizationId, role: member.role, orgName: organization.name })
+    .select({ orgId: member.organizationId, role: member.role, orgName: organization.name, orgLogo: organization.logo })
     .from(member)
     .innerJoin(organization, eq(organization.id, member.organizationId))
     .where(eq(member.userId, session.user.id))

@@ -27,9 +27,20 @@ export type SceneTask = {
   /** Deadline health: overdue blocks get a red band, due-soon an amber one. */
   health: Health
 }
-export type SceneMember = { id: string; name: string; open: number; active: number; blocked: number; overdue: number }
+export type SceneMember = {
+  id: string
+  name: string
+  /** Their avatar, engraved on their token; initials until there is one. */
+  image: string | null
+  open: number
+  active: number
+  blocked: number
+  overdue: number
+}
 // `counts` are the real totals per status; `tasks` is capped per lane, so labels read from counts.
 export type SceneData = {
+  /** The core token in the Hub: the workspace's logo, or its initials. */
+  workspace: { name: string; logo: string | null }
   projects: SceneProject[]
   tasks: SceneTask[]
   counts: Record<TaskStatus, number>
@@ -60,15 +71,16 @@ const sceneTask = (t: TaskRow, today: string): SceneTask => ({
 export function sceneData(
   projects: { id: string; name: string; color: string }[],
   tasks: TaskRow[],
-  members: { id: string; name: string }[],
+  members: { id: string; name: string; image: string | null }[],
   today: string,
-  { full = false } = {}
+  { full = false, workspace }: { full?: boolean; workspace: SceneData["workspace"] }
 ): SceneData {
   const PER_STATUS = full ? 27 : 12
   const perStatus = new Map<TaskStatus, number>()
   const counts = { not_started: 0, in_progress: 0, review: 0, blocked: 0, completed: 0 }
   for (const t of tasks) counts[t.status]++
   return {
+    workspace,
     counts,
     projects: projectProgress(projects, tasks, today, { keepEmpty: full })
       .slice(0, full ? MAX_PROJECTS : 8)
@@ -101,6 +113,7 @@ export function sceneData(
       .map((w) => ({
         id: w.member.id,
         name: w.member.name,
+        image: w.member.image,
         open: w.open,
         active: w.active,
         blocked: w.blocked,
@@ -145,12 +158,12 @@ export const SAMPLE_SCENE: SceneData = (() => {
     })
   )
   const members: SceneMember[] = [
-    { id: "m1", name: "Dara", open: 8, active: 3, blocked: 1, overdue: 1 },
-    { id: "m2", name: "Sok", open: 6, active: 2, blocked: 0, overdue: 0 },
-    { id: "m3", name: "Mina", open: 5, active: 2, blocked: 1, overdue: 2 },
-    { id: "m4", name: "Vann", open: 4, active: 1, blocked: 0, overdue: 0 },
-    { id: "m5", name: "Lina", open: 3, active: 1, blocked: 0, overdue: 0 },
+    { id: "m1", name: "Dara", image: null, open: 8, active: 3, blocked: 1, overdue: 1 },
+    { id: "m2", name: "Sok", image: null, open: 6, active: 2, blocked: 0, overdue: 0 },
+    { id: "m3", name: "Mina", image: null, open: 5, active: 2, blocked: 1, overdue: 2 },
+    { id: "m4", name: "Vann", image: null, open: 4, active: 1, blocked: 0, overdue: 0 },
+    { id: "m5", name: "Lina", image: null, open: 3, active: 1, blocked: 0, overdue: 0 },
   ]
   const counts = Object.fromEntries(lanes) as Record<TaskStatus, number>
-  return { projects, tasks, counts, members, unassigned: tasks.filter((t) => t.status === "not_started").slice(0, 3) }
+  return { workspace: { name: "WeTrack", logo: null }, projects, tasks, counts, members, unassigned: tasks.filter((t) => t.status === "not_started").slice(0, 3) }
 })()

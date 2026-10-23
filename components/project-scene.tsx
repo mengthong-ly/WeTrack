@@ -1,31 +1,32 @@
 "use client"
 
-import { PauseIcon, PlayIcon, RouteIcon, XIcon } from "lucide-react"
+import { PauseIcon, PlayIcon, RotateCcwIcon, RotateCwIcon, RouteIcon, XIcon } from "lucide-react"
 import { useReducedMotion } from "motion/react"
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
 import * as THREE from "three"
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
+import { MapControls } from "three/examples/jsm/controls/MapControls.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"
 
 import { PillTabs } from "@/components/pill-tabs"
 import { Button } from "@/components/ui/button"
-import type { NewTaskPreset } from "@/components/new-task-dialog"
 import Hub from "@/components/ui/hub"
 import type { TaskStatus } from "@/lib/db/enums"
-import { formatDate, HEALTH, PRIORITY, PROJECT_HEALTH, STATUS } from "@/lib/labels"
+import { formatDate, HEALTH, initials, PRIORITY, PROJECT_HEALTH, STATUS } from "@/lib/labels"
 import { MAX_PROJECTS, type SceneData } from "@/lib/scene"
 import { cn } from "@/lib/utils"
 
 /**
- * The 3D overview: the workspace built as a machine you can spin and zoom, in the Agentic
- * Factory scene's finishes (steel, ivory, copper, amber glow, real lights and shadows).
+ * The 3D overview: the workspace as hairline tokens on a paper floor you can spin and zoom.
+ * A token is a rounded square seen in perspective with its mark engraved on top (a logo or avatar
+ * as a duotone, initials until there is one, a status glyph), its name in a badge under the mark
+ * and fine hairlines down its sides.
  * Three views of the same work:
- * - Hub: the workspace core, a station per project around it on copper lines. The station
- *   nearest the pointer rises and its line glows; its neighbours rise less (hairline's Hub, in 3D).
- * - Flow: a station per status with a block per task, and one real task riding a belt.
- * - Team: a station per person, one block per open task.
+ * - Hub: the workspace token at the core, a token per project around it on hairlines. The token
+ *   under the pointer rises and its line darkens.
+ * - Flow: a tray per status with a block per task, and one real task riding a line.
+ * - Team: a token per person raised on a stack of their open work.
  * Five cameras (Overview, Side, Top, Focus, Flight) and play/pause. Click anything to focus it.
  * Status and health colours come from lib/labels.ts. hairline's own Hub (components/ui/hub) is
  * the poster while the scene loads, the fallback without WebGL, and the empty state.
@@ -45,6 +46,10 @@ type SceneApi = {
   /** Pick and fly to something by id (from the Outline or search). Returns the view it lives in. */
   focus: (pick: ScenePick) => Mode | null
   view: () => View
+  /** Fly back to the current camera's home, even when it's already the active one. */
+  home: () => void
+  /** Turn the view an eighth of a circle around what it's looking at (1 clockwise, -1 counter). */
+  turn: (dir: 1 | -1) => void
   dispose: () => void
 }
 type Hooks = {
@@ -53,8 +58,6 @@ type Hooks = {
   onSelect: (s: Selection, pick: ScenePick) => void
   /** Set when blocks can be dragged to another status station or onto a person. */
   onMove?: (taskId: string, patch: SceneMove) => void
-  /** Set when station labels get a "+" that starts a new task there. */
-  onAdd?: (preset: NewTaskPreset) => void
   /** The pointer went down on the scene (calm mode stops the motion then). */
   onInput: () => void
   /** `kind:id` keys to keep lit; everything else of that kind dims. Null: nothing dimmed. */
@@ -86,7 +89,6 @@ export function ProjectScene({
   chrome = "inline",
   onPick,
   onMove,
-  onAdd,
   focusOn,
   highlight = null,
   calm = false,
@@ -105,8 +107,6 @@ export function ProjectScene({
   onPick?: (pick: ScenePick) => void
   /** The workspace: drag a block onto another status station, or unassigned work onto a person. */
   onMove?: (taskId: string, patch: SceneMove) => void
-  /** The workspace: a "+" on each project, status and person label starts a task there. */
-  onAdd?: (preset: NewTaskPreset) => void
   /** Fly to and pick this (a new `n` asks again, even for the same thing). */
   focusOn?: { pick: ScenePick; n: number } | null
   /** `kind:id` keys to keep lit (search, filters); other tasks, projects and people dim. */
@@ -132,12 +132,12 @@ export function ProjectScene({
   const barRef = useRef<HTMLSpanElement>(null)
   const viewRef = useRef<View | null>(null)
   // The latest callbacks, read when the scene calls out (the scene itself mounts once per data set).
-  const calls = useRef({ onPick, onMove, onAdd, calm })
+  const calls = useRef({ onPick, onMove, calm })
   const lit = useRef(highlight)
   useEffect(() => {
-    calls.current = { onPick, onMove, onAdd, calm }
+    calls.current = { onPick, onMove, calm }
     lit.current = highlight
-  }, [onPick, onMove, onAdd, calm, highlight])
+  }, [onPick, onMove, calm, highlight])
   const workspace = !!onPick
   // Calm: motion plays until the first touch, then stays still unless Play is pressed.
   const still = useCallback(() => {
@@ -164,7 +164,6 @@ export function ProjectScene({
           else setSelected(s)
         },
         onMove: workspace ? (id, patch) => calls.current.onMove?.(id, patch) : undefined,
-        onAdd: workspace ? (preset) => calls.current.onAdd?.(preset) : undefined,
         onInput: () => still(),
         highlight: () => lit.current,
         journey: () => ({ step: stepRef.current, bar: barRef.current }),
@@ -221,7 +220,7 @@ export function ProjectScene({
         ref={rootRef}
         className="absolute inset-0"
         role="img"
-        aria-label={`3D view of ${data.projects.length} projects, ${total} tasks and ${data.members.length} people. Drag to rotate, scroll or pinch to zoom, click something to focus it.`}
+        aria-label={`3D view of ${data.projects.length} projects, ${total} tasks and ${data.members.length} people. Drag to move around, Shift-drag or right-drag to turn, scroll or pinch to zoom, click something to focus it.`}
       />
 
       {/* hairline's Hub holds the place while the scene loads, and stays if WebGL is missing. */}
@@ -312,8 +311,23 @@ export function ProjectScene({
             <PillTabs
               id="scene-cam"
               className="max-w-[calc(100%-3.25rem)]"
-              items={(calm ? WORK_CAMS : CAMS).map((c) => ({ key: c.key, label: c.label, active: cam === c.key, onSelect: () => setCam(c.key) }))}
+              items={(calm ? WORK_CAMS : CAMS).map((c) => ({ key: c.key, label: c.label, active: cam === c.key, onSelect: () => (c.key === cam ? api.current?.home() : setCam(c.key)) }))}
             />
+            {/* Turning is also Shift-drag, right-drag or two fingers; these make it findable. */}
+            {([[-1, RotateCcwIcon, "Turn left"], [1, RotateCwIcon, "Turn right"]] as const).map(([dir, Icon, name]) => (
+              <button
+                key={dir}
+                type="button"
+                onClick={() => {
+                  api.current?.turn(dir)
+                  still()
+                }}
+                aria-label={name}
+                className={cn("hidden size-11 shrink-0 place-items-center rounded-full transition-[background-color,scale] hover:bg-card active:scale-95 sm:grid", glass)}
+              >
+                <Icon className="size-4" />
+              </button>
+            ))}
             <button
               type="button"
               onClick={() => setPaused(playing)}
@@ -327,7 +341,7 @@ export function ProjectScene({
           {/* The workspace explains its gestures in the legend instead. */}
           {chrome === "inline" && (
             <p className="pointer-events-none absolute right-4 bottom-20 hidden text-xs text-muted-foreground lg:block">
-              Drag to rotate. Scroll to zoom.
+              Drag to move. Shift-drag to turn. Scroll to zoom.
             </p>
           )}
         </>
@@ -351,17 +365,17 @@ type Item = {
   y: number
   lift: number
   rise: number // how far it lifts on hover
-  glow: Std // lit on hover and focus, like the factory's station strips
+  glow: Std // lit on hover and focus: the plate under a token, or a task block itself
   rest: number
   tip: [string, string]
   top: number
   href: string | null
-  cell?: [number, number]
-  link?: Std
+  link?: THREE.LineBasicMaterial
   drag?: "status" | "assign" // Flow blocks move between statuses; unassigned blocks go to a person
   status?: TaskStatus
-  tone?: Tone // a task block's own colour, which dims toward steel when it's filtered out
+  tone?: Tone // a task block's own colour, which dims toward the paper when it's filtered out
   marks?: Std[] // its deadline band and urgent pin, which fade with it
+  fade?: THREE.Material[] // a token's materials, which go see-through when it's filtered out
   dim: number
 }
 
@@ -369,7 +383,7 @@ type Layer = {
   group: THREE.Group
   mats: THREE.Material[]
   items: Item[]
-  labels: { el: HTMLElement; obj: THREE.Object3D; at: THREE.Vector3 }[]
+  proxies: THREE.Object3D[] // invisible hit boxes, one per item
   weight: number
   radius: number
 }
@@ -381,35 +395,41 @@ const LANES: { status: TaskStatus; x: number; z: number }[] = [
   { status: "completed", x: 4.2, z: 0 },
   { status: "blocked", x: -1.4, z: -2.9 },
 ]
-// Hub tiles fill rings around the core (8, then 16 more), front (towards the camera) first.
+// Hub tokens fill rings around the core (8, then 16 more), front (towards the camera) first.
 const CELLS: [number, number][] = [1, 2].flatMap((r) => {
   const ring: [number, number][] = []
   for (let cx = -r; cx <= r; cx++)
     for (let cz = -r; cz <= r; cz++) if (Math.max(Math.abs(cx), Math.abs(cz)) === r) ring.push([cx, cz])
   return ring.sort((a, b) => b[0] + b[1] - (a[0] + a[1]))
 })
-const PITCH = 2.7
+const PITCH = 3.3
 const TAU = Math.PI * 2
-const DECK = 0.235 // top of the deck every view stands on
+const FLOOR = 0 // the ground every view stands on
 const BELT_Z = 1.8
 const CENTER_Y = 0.7
+const PLATE = 0.05 // the meaning-coloured plate under a token
+const BEVEL = 0.025
+const FACE = 320 // px per token face
+const BLOCK = 0.42 // a task block
+const REST = 0.15 // how much a token's plate glows when nothing is on it
+const LINE = 0.3 // a hairline's opacity; a hovered project's line darkens to 0.9
+const WHITE = new THREE.Color(0xffffff)
+const UP = new THREE.Vector3(0, 1, 0)
+const NEAR_BLACK = new THREE.Color(0x171717)
 
-// The Agentic Factory's finishes, [colour, metalness, roughness]. A fixed material palette, like a
-// brand mark (see DESIGN.md); meaning (status, health) still comes from lib/labels.ts.
-const FINISH = {
-  body: [0x30363f, 0.75, 0.29],
-  base: [0x292f37, 0.85, 0.32],
-  edge: [0x707986, 0.85, 0.24],
-  chrome: [0xc3cad0, 0.92, 0.18],
-  dark: [0x12171d, 0.45, 0.38],
-  rubber: [0x0b1015, 0.1, 0.6],
-  amber: [0xff7a1a, 0.52, 0.28],
-  ivory: [0xe0ded4, 0.48, 0.26],
-  copper: [0xc57e45, 0.85, 0.3],
-} as const
-const AMBER = 0xff7a1a
-const WARM_WHITE = 0xfff3d7
-const GHOST = new THREE.Color(0x3a414b) // a filtered-out block fades toward the deck's steel
+/** What a token shows on top: an image (as a duotone), initials, or a status glyph. */
+type Glyph = TaskStatus | "unassigned"
+type FaceSpec = {
+  fill: Tone
+  ink: Tone
+  text?: string
+  image?: string | null
+  glyph?: Glyph
+  /** In a badge under the mark (beside the glyph on a tray). */
+  name?: string
+  /** Trays carry blocks in the middle, so their glyph sits at the front edge. */
+  front?: boolean
+}
 
 function readPalette(root: HTMLElement) {
   const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!
@@ -429,7 +449,20 @@ function readPalette(root: HTMLElement) {
     probe.className = className
     return toColor(getComputedStyle(probe).color)
   }
+  const fill = (className: string) => {
+    probe.className = className
+    return toColor(getComputedStyle(probe).backgroundColor)
+  }
+  const ink = text("text-foreground")
+  const paper = fill("bg-card")
+  const muted = text("text-muted-foreground")
   const palette = {
+    ink,
+    paper,
+    muted,
+    neutral: paper.clone().lerp(muted, 0.6), // not-started and unassigned blocks
+    ghost: paper.clone().lerp(muted, 0.25), // a filtered-out block fades toward the paper
+    font: getComputedStyle(root).fontFamily,
     overdue: text(HEALTH.overdue.className),
     dueSoon: text(HEALTH.due_soon.className),
     urgent: text(PRIORITY.urgent.className),
@@ -443,32 +476,190 @@ function readPalette(root: HTMLElement) {
   return palette
 }
 
+// White engraving on dark colours, near-black on light ones (yellow, cyan).
+const inkOn = (c: THREE.Color) => (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.4 ? NEAR_BLACK : WHITE)
+
+const roundedSquare = (half: number, r: number) => {
+  const s = new THREE.Shape()
+  s.moveTo(-half + r, -half)
+  s.lineTo(half - r, -half)
+  s.absarc(half - r, -half + r, r, -Math.PI / 2, 0)
+  s.lineTo(half, half - r)
+  s.absarc(half - r, half - r, r, 0, Math.PI / 2)
+  s.lineTo(-half + r, half)
+  s.absarc(-half + r, half - r, r, Math.PI / 2, Math.PI)
+  s.lineTo(-half, -half + r)
+  s.absarc(-half + r, -half + r, r, Math.PI, Math.PI * 1.5)
+  return s
+}
+
+// Status glyphs, one family: dashed ring (not started), half and three-quarter fills (in progress,
+// review), a cross (blocked), a filled check (completed).
+function drawGlyph(x: CanvasRenderingContext2D, g: Glyph, cx: number, cy: number, r: number, ink: string, hole: string) {
+  x.strokeStyle = x.fillStyle = ink
+  x.lineWidth = r * 0.2
+  x.lineCap = x.lineJoin = "round"
+  const ring = () => {
+    x.beginPath()
+    x.arc(cx, cy, r, 0, TAU)
+    x.stroke()
+  }
+  const pie = (part: number) => {
+    x.beginPath()
+    x.moveTo(cx, cy)
+    x.arc(cx, cy, r * 0.56, -Math.PI / 2, -Math.PI / 2 + TAU * part)
+    x.closePath()
+    x.fill()
+  }
+  if (g === "not_started" || g === "unassigned") {
+    x.setLineDash([r * 0.42, r * 0.36])
+    ring()
+    x.setLineDash([])
+  } else if (g === "in_progress") {
+    ring()
+    pie(0.5)
+  } else if (g === "review") {
+    ring()
+    pie(0.75)
+  } else if (g === "blocked") {
+    ring()
+    const k = r * 0.4
+    x.beginPath()
+    x.moveTo(cx - k, cy - k)
+    x.lineTo(cx + k, cy + k)
+    x.moveTo(cx + k, cy - k)
+    x.lineTo(cx - k, cy + k)
+    x.stroke()
+  } else {
+    x.beginPath()
+    x.arc(cx, cy, r + x.lineWidth / 2, 0, TAU)
+    x.fill()
+    x.strokeStyle = hole
+    x.beginPath()
+    x.moveTo(cx - r * 0.42, cy + r * 0.02)
+    x.lineTo(cx - r * 0.1, cy + r * 0.34)
+    x.lineTo(cx + r * 0.45, cy - r * 0.3)
+    x.stroke()
+  }
+}
+
+// Shortens text with an ellipsis until it fits `max` px in the current font.
+function fit(x: CanvasRenderingContext2D, text: string, max: number) {
+  if (x.measureText(text).width <= max) return text
+  let t = text
+  while (t.length > 1 && x.measureText(`${t}…`).width > max) t = t.slice(0, -1)
+  return `${t.trimEnd()}…`
+}
+
+// A token's face: its colour, the mark engraved in it, the name in a badge under the mark, and fine
+// scanlines over all of it like an engraving. Canvas top is the token's back, bottom its front.
+function paintFace(c: HTMLCanvasElement, f: FaceSpec, pal: Palette, img: HTMLImageElement | null) {
+  const S = c.width
+  const x = c.getContext("2d")!
+  const fill = f.fill(pal), ink = f.ink(pal)
+  x.fillStyle = fill.getStyle()
+  x.fillRect(0, 0, S, S)
+  const named = !!f.name && !f.front
+  let cx = S / 2
+  const cy = f.front ? S * 0.845 : named ? S * 0.37 : S / 2
+  const r = f.front ? S * 0.075 : named ? S * 0.2 : S * 0.27
+  if (f.front && f.name) {
+    // A tray: glyph and name side by side, centred together on the front edge.
+    x.font = `500 ${Math.round(S * 0.07)}px ${pal.font}`
+    const label = fit(x, f.name, S * 0.6)
+    const gap = S * 0.035, w = x.measureText(label).width
+    cx = S / 2 - (r * 2 + gap + w) / 2 + r
+    x.fillStyle = ink.getStyle()
+    x.textAlign = "left"
+    x.textBaseline = "middle"
+    x.fillText(label, cx + r + gap, cy)
+  }
+  let drawn = false
+  if (img) {
+    // The image as a duotone between the face's darker and lighter colour, so any picture
+    // sits in the token's colour.
+    const d = Math.round(r * 2.1)
+    const off = document.createElement("canvas")
+    off.width = off.height = d
+    const o = off.getContext("2d")!
+    const s = Math.max(d / img.naturalWidth, d / img.naturalHeight)
+    o.drawImage(img, (d - img.naturalWidth * s) / 2, (d - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s)
+    try {
+      const px = o.getImageData(0, 0, d, d)
+      const lumOf = (k: THREE.Color) => 0.2126 * k.r + 0.7152 * k.g + 0.0722 * k.b
+      const [dark, light] = lumOf(fill) < lumOf(ink) ? [fill, ink] : [ink, fill]
+      const a = dark.clone().convertLinearToSRGB(), b = light.clone().convertLinearToSRGB()
+      for (let i = 0; i < px.data.length; i += 4) {
+        const l = (0.2126 * px.data[i] + 0.7152 * px.data[i + 1] + 0.0722 * px.data[i + 2]) / 255
+        px.data[i] = (a.r + (b.r - a.r) * l) * 255
+        px.data[i + 1] = (a.g + (b.g - a.g) * l) * 255
+        px.data[i + 2] = (a.b + (b.b - a.b) * l) * 255
+      }
+      o.putImageData(px, 0, 0)
+      x.save()
+      x.beginPath()
+      x.roundRect(cx - d / 2, cy - d / 2, d, d, d * 0.2)
+      x.clip()
+      x.drawImage(off, cx - d / 2, cy - d / 2)
+      x.restore()
+      drawn = true
+    } catch {
+      // A picture from a host without CORS can't be read; the initials stay.
+    }
+  }
+  if (named) {
+    // The name in a pill under the mark, the ink at low opacity behind it.
+    x.font = `500 ${Math.round(S * 0.105)}px ${pal.font}`
+    const label = fit(x, f.name!, S * 0.74)
+    const h = S * 0.19, w = x.measureText(label).width + S * 0.12, y = S * 0.77
+    x.fillStyle = ink.getStyle()
+    x.globalAlpha = 0.14
+    x.beginPath()
+    x.roundRect(S / 2 - w / 2, y - h / 2, w, h, h / 2)
+    x.fill()
+    x.globalAlpha = 1
+    x.textAlign = "center"
+    x.textBaseline = "middle"
+    x.fillText(label, S / 2, y + S * 0.004)
+  }
+  if (!drawn && f.glyph) drawGlyph(x, f.glyph, cx, cy, r, ink.getStyle(), fill.getStyle())
+  else if (!drawn && f.text) {
+    x.fillStyle = ink.getStyle()
+    x.font = `400 ${Math.round(r * (f.text.length > 1 ? 1.15 : 1.5))}px ${pal.font}`
+    x.textAlign = "center"
+    x.textBaseline = "middle"
+    x.fillText(f.text, cx, cy + r * 0.05)
+  }
+  x.fillStyle = "rgba(0,0,0,0.05)"
+  for (let y = 0; y < S; y += 4) x.fillRect(0, y, S, 1)
+}
+
 function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View | null): SceneApi {
   let renderer: THREE.WebGLRenderer
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" })
   } catch {
     hooks.onFail()
-    return { set: () => {}, select: () => {}, focus: () => null, view: () => view!, dispose: () => {} }
+    return { set: () => {}, select: () => {}, focus: () => null, view: () => view!, home: () => {}, turn: () => {}, dispose: () => {} }
   }
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches
   let pal = readPalette(root)
+  let alive = true
   const tints: ((p: Palette) => void)[] = []
 
   let pixelRatio = Math.min(devicePixelRatio, 2)
   renderer.setPixelRatio(pixelRatio)
   renderer.setClearColor(0x000000, 0)
   renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.12
+  // Neutral keeps the theme and project colours true; ACES would wash them out.
+  renderer.toneMapping = THREE.NeutralToneMapping
+  renderer.toneMappingExposure = 1
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFShadowMap
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.domElement.className = "block size-full cursor-grab touch-none outline-none"
   root.appendChild(renderer.domElement)
+  const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
 
-  const overlay = document.createElement("div")
-  overlay.className = "pointer-events-none absolute inset-0 overflow-hidden"
-  root.appendChild(overlay)
   const tip = document.createElement("div")
   tip.className =
     "pointer-events-none absolute top-0 left-0 max-w-56 rounded-row bg-card/80 px-3.5 py-2.5 opacity-0 shadow-lg ring-1 ring-foreground/5 backdrop-blur transition-opacity duration-150 ease-out"
@@ -482,10 +673,12 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 200)
   camera.position.set(1, 0.85, 1.1).multiplyScalar(20)
-  const controls = new OrbitControls(camera, renderer.domElement)
+  // Map-style: drag moves around the floor, Shift-drag or right-drag turns, scroll and pinch zoom
+  // toward the pointer. One finger moves, two turn and zoom.
+  const controls = new MapControls(camera, renderer.domElement)
+  controls.zoomToCursor = true
   controls.target.set(0, CENTER_Y, 0)
   controls.enableDamping = true
-  controls.enablePan = false
   controls.dampingFactor = 0.065
   controls.minDistance = 4
   controls.minPolarAngle = 0.05
@@ -494,81 +687,93 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   controls.zoomSpeed = 0.7
   controls.autoRotateSpeed = 0.24
 
-  // --- light, as the factory sets it: a room for reflections, a warm key with shadows, a cool rim.
+  // --- light: soft daylight on paper. A sky/ground fill, one key with soft shadows, a front fill.
   const pmrem = new THREE.PMREMGenerator(renderer)
   const room = new RoomEnvironment()
   const env = pmrem.fromScene(room, 0.04)
   scene.environment = env.texture
-  scene.environmentIntensity = 0.62
+  scene.environmentIntensity = 0.35
   room.dispose()
   pmrem.dispose()
-  scene.add(new THREE.HemisphereLight(0xdbe5f4, 0x29211a, 2))
-  const key = new THREE.DirectionalLight(0xfff1d8, 4.2)
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xd8d8d8, 1.7))
+  const key = new THREE.DirectionalLight(0xffffff, 2.3)
   key.position.set(-4, 12, 7)
   key.castShadow = true
   key.shadow.mapSize.set(2048, 2048)
   Object.assign(key.shadow.camera, { left: -10, right: 10, top: 9, bottom: -9, near: 0.5, far: 35 })
-  key.shadow.normalBias = 0.035
+  key.shadow.normalBias = 0.03
   key.shadow.bias = -0.0002
-  key.shadow.radius = 4
+  key.shadow.radius = 5
   scene.add(key)
-  const rim = new THREE.DirectionalLight(0xc4d4ed, 3.1)
-  rim.position.set(3, 7, -8)
-  scene.add(rim)
-  const warm = new THREE.PointLight(0xffbd42, 28, 20, 2)
-  warm.position.set(-4, 5, 3)
-  scene.add(warm)
-  const front = new THREE.DirectionalLight(0xffffff, 1)
+  const front = new THREE.DirectionalLight(0xffffff, 0.7)
   front.position.set(5, 3, 10)
   scene.add(front)
 
-  // The floor only catches shadows, plus a soft contact shadow under the deck.
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), new THREE.ShadowMaterial({ opacity: 0.23 }))
+  // The floor: shadows only, under a hairline grid that fades out before it reaches an edge.
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), new THREE.ShadowMaterial({ opacity: 0.12 }))
   floor.rotation.x = -Math.PI / 2
-  floor.position.y = -0.43
+  floor.position.y = FLOOR - 0.001
   floor.receiveShadow = true
   scene.add(floor)
-  const blob = document.createElement("canvas")
-  blob.width = blob.height = 128
-  const bctx = blob.getContext("2d")!
-  const grad = bctx.createRadialGradient(64, 64, 12, 64, 64, 64)
-  grad.addColorStop(0, "rgba(0,0,0,.8)")
-  grad.addColorStop(0.55, "rgba(0,0,0,.45)")
-  grad.addColorStop(1, "rgba(0,0,0,0)")
-  bctx.fillStyle = grad
-  bctx.fillRect(0, 0, 128, 128)
-  const contact = new THREE.Mesh(
-    new THREE.PlaneGeometry(18, 13),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(blob), transparent: true, depthWrite: false, opacity: 0.55 })
-  )
-  contact.rotation.x = -Math.PI / 2
-  contact.position.y = -0.415
-  scene.add(contact)
+  const grid = (() => {
+    const pos: number[] = [], col: number[] = []
+    const R = 22, step = 2, seg = 44
+    const a = (x: number, z: number) => Math.max(0, 1 - Math.hypot(x, z) / R) ** 1.6
+    for (let k = -R; k <= R; k += step)
+      for (let i = 0; i < seg; i++) {
+        const t0 = -R + (i / seg) * 2 * R, t1 = -R + ((i + 1) / seg) * 2 * R
+        for (const [x0, z0, x1, z1] of [[k, t0, k, t1], [t0, k, t1, k]]) {
+          pos.push(x0, FLOOR, z0, x1, FLOOR, z1)
+          col.push(1, 1, 1, a(x0, z0), 1, 1, 1, a(x1, z1))
+        }
+      }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3))
+    // RGBA vertex colours: the alpha is the fade.
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4))
+    const m = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.16, depthWrite: false, toneMapped: false })
+    tints.push((q) => m.color.copy(q.ink))
+    m.color.copy(pal.ink)
+    return new THREE.LineSegments(g, m)
+  })()
+  scene.add(grid)
+
+  // Fine vertical hairlines down every token's sides. Side-wall UVs are in world units, so the
+  // spacing is the same on every size of token.
+  const stripes = (() => {
+    const c = document.createElement("canvas")
+    c.width = 64
+    c.height = 4
+    const x = c.getContext("2d")!
+    x.fillStyle = "#fff"
+    x.fillRect(0, 0, 64, 4)
+    x.fillStyle = "#cfcfcf"
+    for (let i = 0; i < 64; i += 4) x.fillRect(i, 0, 1, 4)
+    const t = new THREE.CanvasTexture(c)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    t.repeat.set(1.5, 1)
+    t.colorSpace = THREE.SRGBColorSpace
+    t.anisotropy = anisotropy
+    return t
+  })()
+  const faces: THREE.Texture[] = []
 
   // --- building blocks -------------------------------------------------------
   const layer = (): Layer => {
     const group = new THREE.Group()
     scene.add(group)
-    return { group, mats: [], items: [], labels: [], weight: 0, radius: 4 }
+    return { group, mats: [], items: [], proxies: [], weight: 0, radius: 4 }
   }
   const own = <T extends THREE.Material>(L: Layer, m: T, base = 1) => {
     m.userData.base = base
     L.mats.push(m)
     return m
   }
-  // Each view owns its materials, so it can fade on its own.
-  const kit = (L: Layer) =>
-    Object.fromEntries(
-      Object.entries(FINISH).map(([k, [color, metalness, roughness]]) => [
-        k,
-        own(L, new THREE.MeshStandardMaterial({ color, metalness, roughness })),
-      ])
-    ) as Record<keyof typeof FINISH, Std>
-  // A coloured part that can glow: amber, warm white, or a status / health colour from lib/labels.ts.
-  const lit = (L: Layer, tone: Tone | number, glow: number, metalness = 0.2, roughness = 0.25) => {
+  // A coloured part that can glow: a theme, status or health colour from lib/labels.ts.
+  const lit = (L: Layer, tone: Tone | THREE.Color, glow: number, metalness = 0, roughness = 0.5) => {
     const m = own(L, new THREE.MeshStandardMaterial({ metalness, roughness, emissiveIntensity: glow }))
     const paint = (p: Palette) => {
-      const c = typeof tone === "number" ? new THREE.Color(tone) : tone(p)
+      const c = tone instanceof THREE.Color ? tone : tone(p)
       m.color.copy(c)
       m.emissive.copy(c)
     }
@@ -576,6 +781,21 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     tints.push(paint)
     return m
   }
+  // A 1px line in the ink colour; `userData.base` is its opacity.
+  const stroke = (L: Layer) => {
+    const m = own(L, new THREE.LineBasicMaterial({ toneMapped: false }), LINE)
+    const paint = (p: Palette) => m.color.copy(p.ink)
+    paint(pal)
+    tints.push(paint)
+    return m
+  }
+  // Each view owns its materials, so it can fade on its own.
+  const kit = (L: Layer) => {
+    const line = lit(L, (q) => q.ink, 0)
+    line.userData.base = LINE
+    return { ink: lit(L, (q) => q.ink, 0, 0, 0.45), paper: lit(L, (q) => q.paper, 0, 0, 0.6), neutral: lit(L, (q) => q.neutral, 0), line, stroke: stroke(L) }
+  }
+  type Kit = ReturnType<typeof kit>
   const geos = new Map<string, THREE.BufferGeometry>()
   const geo = (key: string, make: () => THREE.BufferGeometry) => {
     let g = geos.get(key)
@@ -599,85 +819,81 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     )
   const cyl = (parent: THREE.Object3D, r: number, h: number, x: number, y: number, z: number, m: THREE.Material, seg = 24) =>
     mesh(parent, geo(`c${r},${h},${seg}`, () => new THREE.CylinderGeometry(r, r, h, seg)), m, x, y, z)
-  const tube = (parent: THREE.Object3D, pts: THREE.Vector3[], r: number, m: THREE.Material) => {
-    const o = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, r, 8, false), m)
-    o.castShadow = true
-    parent.add(o)
-    return o
+  // A hairline through the points; three or more bend into a smooth curve.
+  const hairline = (parent: THREE.Object3D, pts: THREE.Vector3[], m: THREE.LineBasicMaterial) => {
+    const at = pts.length > 2 ? new THREE.CatmullRomCurve3(pts).getPoints(32) : pts
+    parent.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(at), m))
   }
-  type Kit = ReturnType<typeof kit>
-  const screw = (parent: THREE.Object3D, x: number, y: number, z: number, M: Kit) => {
-    cyl(parent, 0.055, 0.026, x, y, z, M.chrome, 12)
-    box(parent, 0.068, 0.005, 0.009, x, y + 0.014, z, M.dark, 0)
-  }
-  const gear = (parent: THREE.Object3D, x: number, y: number, z: number, r: number, M: Kit) => {
-    const g = new THREE.Group()
-    g.position.set(x, y, z)
-    parent.add(g)
-    cyl(g, r, 0.09, 0, 0, 0, M.copper)
-    cyl(g, r * 0.66, 0.105, 0, 0, 0, M.dark)
-    cyl(g, r * 0.22, 0.14, 0, 0, 0, M.chrome)
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * TAU
-      box(g, r * 0.26, 0.085, r * 0.2, Math.cos(a) * r, 0, Math.sin(a) * r, M.copper, 0.008).rotation.y = -a
+  // A rounded-square slab standing on y = 0: an extruded shape, so the corners stay round in plan
+  // however thin it is (a rounded box can't round its corners more than half its height).
+  const slab = (size: number, h: number) =>
+    geo(`s${size},${h}`, () => {
+      const b = Math.min(BEVEL, h / 4)
+      const g = new THREE.ExtrudeGeometry(roundedSquare(size / 2 - b, size * 0.15), {
+        depth: h - b * 2, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 3, curveSegments: 10,
+      })
+      g.rotateX(-Math.PI / 2)
+      g.translate(0, b, 0)
+      return g
+    })
+  // The face laid on a slab's flat top, with its UVs spread 0–1 across it.
+  const decal = (size: number) =>
+    geo(`d${size}`, () => {
+      const s = size / 2 - BEVEL
+      const g = new THREE.ShapeGeometry(roundedSquare(s, size * 0.15), 10)
+      const uv = g.attributes.uv
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) + s) / (2 * s), (uv.getY(i) + s) / (2 * s))
+      g.rotateX(-Math.PI / 2)
+      return g
+    })
+  /**
+   * A token: a rounded square seen in perspective, its mark engraved on top and hairlines down
+   * its sides. With `plate`, it stands on a thin plate in a meaning colour (health, status,
+   * overdue) that glows on hover. Returns the height of its top, the glow and its materials.
+   */
+  const token = (L: Layer, parent: THREE.Object3D, size: number, h: number, body: Tone, f: FaceSpec, plate: Tone | null, y = 0) => {
+    const fade: THREE.Material[] = []
+    let glow: Std | null = null
+    if (plate) {
+      glow = lit(L, plate, REST)
+      fade.push(glow)
+      mesh(parent, slab(size + 0.1, PLATE), glow, 0, y, 0)
+      y += PLATE
     }
-    return g
-  }
-  // The layered deck under each view, after the factory's plate: base, edge, top, an amber strip, feet.
-  const deck = (L: Layer, M: Kit, w: number, d: number, z = 0, x = 0) => {
-    const g = L.group
-    box(g, w, 0.38, d, x, -0.09, z, M.base, 0.17)
-    box(g, w - 0.2, 0.055, d - 0.17, x, 0.13, z, M.edge, 0.11)
-    box(g, w - 0.31, 0.09, d - 0.29, x, 0.19, z, M.body, 0.1)
-    box(g, w - 0.9, 0.026, 0.032, x, -0.17, z + d / 2 + 0.005, lit(L, AMBER, 1.5), 0.01)
-    for (const sx of [-1, 1])
-      for (const sz of [-1, 1]) {
-        cyl(g, 0.39, 0.25, x + sx * (w / 2 - 0.9), -0.31, z + sz * (d / 2 - 0.8), M.rubber)
-        screw(g, x + sx * (w / 2 - 0.35), DECK + 0.015, z + sz * (d / 2 - 0.35), M)
+    const side = lit(L, body, 0, 0, 0.55)
+    side.map = stripes
+    mesh(parent, slab(size, h), side, 0, y, 0)
+    const canvas = document.createElement("canvas")
+    canvas.width = canvas.height = FACE
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.anisotropy = anisotropy
+    faces.push(tex)
+    const top = own(L, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2 }))
+    let img: HTMLImageElement | null = null
+    const paint = (p: Palette) => {
+      paintFace(canvas, f, p, img)
+      tex.needsUpdate = true
+    }
+    paint(pal)
+    tints.push(paint)
+    if (f.image) {
+      const load = new Image()
+      load.crossOrigin = "anonymous"
+      load.onload = () => {
+        if (!alive) return
+        img = load
+        paint(pal)
       }
-  }
-  // A station footing: dark base, a glowing strip, a steel top with screws. Returns its top height.
-  const footing = (parent: THREE.Object3D, w: number, d: number, strip: Std, M: Kit) => {
-    box(parent, w, 0.12, d, 0, 0.06, 0, M.dark, 0.1)
-    box(parent, w - 0.08, 0.03, d - 0.08, 0, 0.135, 0, strip, 0.09)
-    box(parent, w - 0.02, 0.17, d - 0.05, 0, 0.235, 0, M.body, 0.1)
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) screw(parent, sx * (w / 2 - 0.18), 0.33, sz * (d / 2 - 0.18), M)
-    return 0.32
-  }
-  const label = (L: Layer, obj: THREE.Object3D, at: THREE.Vector3, name: string, meta: string, add?: NewTaskPreset) => {
-    const el = document.createElement("div")
-    // A small glass pill, so the name reads on the dark deck as well as on the page.
-    el.className =
-      "absolute top-0 left-0 flex max-w-28 items-baseline gap-1 rounded-full bg-card/85 px-2 py-0.5 text-[11px] whitespace-nowrap opacity-0 shadow-sm ring-1 ring-foreground/5 backdrop-blur sm:max-w-44 sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-xs"
-    const n = document.createElement("span")
-    n.className = "truncate text-foreground"
-    n.textContent = name
-    const c = document.createElement("span")
-    c.className = "tabular text-muted-foreground"
-    c.textContent = meta
-    el.append(n, c)
-    const onAdd = hooks.onAdd
-    if (onAdd && add) {
-      const b = document.createElement("button")
-      b.type = "button"
-      // A 20–24px disc with a 44px hit area (the after: box), the same plus as lucide's.
-      b.className =
-        "pointer-events-auto relative -mr-1 ml-0.5 grid size-5 place-items-center self-center rounded-full bg-foreground text-background transition-[scale] after:absolute after:-inset-2.5 active:scale-90 sm:size-6"
-      b.innerHTML =
-        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
-      b.setAttribute("aria-label", `New task: ${name}`)
-      b.addEventListener("click", () => onAdd(add))
-      el.append(b)
+      load.src = f.image
     }
-    overlay.appendChild(el)
-    L.labels.push({ el, obj, at })
+    mesh(parent, decal(size), top, 0, y + h + 0.002, 0).castShadow = false
+    fade.push(side, top)
+    return { top: y + h, glow, fade }
   }
-  // Every pickable thing, found again from any mesh inside it.
-  const itemOf = new Map<THREE.Object3D, Item>()
   const track = (L: Layer, it: Omit<Item, "home" | "lift" | "dim">) => {
     const item = { ...it, lift: 0, dim: 0, home: it.obj.position.clone() }
     L.items.push(item)
-    itemOf.set(item.obj, item)
     return item
   }
   const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
@@ -685,125 +901,118 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   // A task as a block in its status colour. The facts people act on sit on the block itself:
   // a red band when overdue, an amber one when due soon, a red pin when urgent.
   const block = (L: Layer, M: Kit, c: THREE.Group, t: SceneData["tasks"][number], y: number, drag: Item["drag"]) => {
-    const tone: Tone = (q) => (t.status === "not_started" || drag === "assign" ? new THREE.Color(FINISH.ivory[0]) : q.status[t.status])
-    const m = lit(L, tone, 0, 0.45, 0.3)
-    box(c, 0.48, 0.48, 0.48, 0, 0.24, 0, m, 0.06)
+    const tone: Tone = (q) => (t.status === "not_started" || drag === "assign" ? q.neutral : q.status[t.status])
+    const m = lit(L, tone, 0, 0, 0.45)
+    box(c, BLOCK, BLOCK, BLOCK, 0, BLOCK / 2, 0, m, 0.06)
     const late = t.health === "overdue" ? (q: Palette) => q.overdue : t.health === "due_soon" ? (q: Palette) => q.dueSoon : null
     const marks: Std[] = []
-    // Lower glow than the strips: more and ACES tone mapping washes the red to salmon.
     if (late) {
-      const band = lit(L, late, 0.9)
+      const band = lit(L, late, 0.5)
       marks.push(band)
-      box(c, 0.52, 0.07, 0.52, 0, 0.05, 0, band, 0.02)
+      box(c, BLOCK + 0.04, 0.06, BLOCK + 0.04, 0, 0.045, 0, band, 0.02)
     }
     if (t.priority === "urgent") {
-      const pin = lit(L, (q) => q.urgent, 1.4)
+      const pin = lit(L, (q) => q.urgent, 0.8)
       marks.push(pin)
-      cyl(c, 0.018, 0.2, 0.17, 0.58, 0.17, M.chrome, 8)
-      cyl(c, 0.055, 0.05, 0.17, 0.7, 0.17, pin, 16)
+      cyl(c, 0.016, 0.18, 0.15, BLOCK + 0.09, 0.15, M.ink, 8)
+      cyl(c, 0.05, 0.045, 0.15, BLOCK + 0.2, 0.15, pin, 16)
     }
     for (const m of marks) m.userData.glow = m.emissiveIntensity
     const due = t.deadline && (t.health === "overdue" || t.health === "due_soon") ? `${HEALTH[t.health].label} ${formatDate(t.deadline)}` : null
     const meta = drag === "assign" ? [t.project, "Unassigned", due] : [t.project, STATUS[t.status].label, due, t.assignee?.split(" ")[0]]
     track(L, {
       ref: { kind: "task", id: t.id },
-      obj: c, y, rise: 0.18, glow: m, rest: 0, top: 0.48, drag, status: t.status, tone, marks,
+      obj: c, y, rise: 0.18, glow: m, rest: 0, top: BLOCK, drag, status: t.status, tone, marks,
       tip: [t.priority === "urgent" ? `${t.title} (urgent)` : t.title, meta.filter(Boolean).join(" · ")],
       href: `/tasks/${t.id}`,
     })
   }
+  // Up to 27 blocks in a 3×3×3 stack on a tray, behind the glyph at its front edge.
+  const stack = (L: Layer, M: Kit, tasks: SceneData["tasks"], x: number, z: number, base: number, drag: Item["drag"]) =>
+    tasks.forEach((t, i) => {
+      const col = i % 3, row = Math.floor(i / 3) % 3, level = Math.floor(i / 9)
+      const y = FLOOR + base + level * (BLOCK + 0.06)
+      const c = new THREE.Group()
+      c.position.set(x + (col - 1) * 0.5, y, z + (row - 1) * 0.5 - 0.3)
+      L.group.add(c)
+      block(L, M, c, t, y, drag)
+    })
 
-  // --- Hub: the workspace core, a station per project, copper lines between them ---------
+  // --- Hub: the workspace core, a token per project, a line from the core to each ------------
   const hub = layer()
-  const HM = kit(hub)
   const shown = data.projects.slice(0, MAX_PROJECTS)
-  const rings = shown.length > 8 ? 2 : 1
-  deck(hub, HM, (2 * rings + 1) * PITCH + 1.3, (2 * rings + 1) * PITCH + 1.3)
   const core = new THREE.Group()
-  core.position.y = DECK
+  core.position.y = FLOOR
   hub.group.add(core)
-  const coreStrip = lit(hub, AMBER, 1.2)
-  const coreTop = footing(core, 1.9, 1.9, coreStrip, HM)
-  box(core, 1.6, 0.62, 1.6, 0, coreTop + 0.31, 0, HM.ivory, 0.13)
-  box(core, 1.7, 0.16, 1.7, 0, coreTop + 0.7, 0, HM.amber, 0.045)
-  const hubGear = gear(core, 0, coreTop + 0.85, 0, 0.42, HM)
+  const coreTok = token(
+    hub, core, 1.9, 0.5, (q) => q.ink,
+    { fill: (q) => q.ink, ink: (q) => q.paper, text: initials(data.workspace.name), image: data.workspace.logo, name: data.workspace.name },
+    (q) => q.status.in_progress
+  )
   const openCount = Object.values(data.counts).reduce((a, b) => a + b, 0) - data.counts.completed
   track(hub, {
     ref: { kind: "workspace", id: "workspace" },
-    obj: core, y: DECK, rise: 0.12, glow: coreStrip, rest: 1.2, top: coreTop + 0.9, href: null,
-    tip: ["Workspace", `${data.projects.length} projects · ${openCount} open`],
+    obj: core, y: FLOOR, rise: 0.15, glow: coreTok.glow!, rest: REST, top: coreTok.top, href: null, fade: coreTok.fade,
+    tip: [data.workspace.name, `${data.projects.length} projects · ${openCount} open`],
   })
-  const fill = lit(hub, AMBER, 1.2)
   shown.forEach((p, i) => {
     const [cx, cz] = CELLS[i]
     const t = new THREE.Group()
-    t.position.set(cx * PITCH, DECK, cz * PITCH)
+    t.position.set(cx * PITCH, FLOOR, cz * PITCH)
     hub.group.add(t)
-    const strip = lit(hub, (q) => q.health[p.health], 0.7)
-    const base = footing(t, 1.9, 1.7, strip, HM)
-    const h = 0.12 + Math.min(p.open, 12) * 0.045
-    box(t, 1.6, h, 1.4, 0, base + h / 2, -0.02, HM.ivory, 0.08)
-    const top = base + h
-    // Progress: a dark track with an amber fill on the tile's face.
-    box(t, 1.3, 0.025, 0.12, 0, top + 0.012, 0.45, HM.dark, 0.01)
-    const fw = Math.max(0.03, (1.3 * p.progress) / 100)
-    box(t, fw, 0.04, 0.12, -0.65 + fw / 2, top + 0.02, 0.45, fill, 0.01)
-    // A copper line from the core to the tile; it glows amber while the tile is up. The outer
-    // ring's lines arc higher, over the inner tiles.
-    const link = own(hub, new THREE.MeshStandardMaterial({ color: FINISH.copper[0], metalness: 0.85, roughness: 0.3, emissive: AMBER, emissiveIntensity: 0 }))
+    const color = new THREE.Color(p.color)
+    // Taller with more open work.
+    const h = 0.2 + Math.min(p.open, 12) * 0.05
+    const tok = token(
+      hub, t, 1.5, h, () => color,
+      { fill: () => color, ink: () => inkOn(color), text: initials(p.name), name: p.name },
+      (q) => q.health[p.health]
+    )
+    // A hairline from the core to the token; it darkens while the token is up. The outer ring's
+    // lines arc over the inner tokens.
+    const link = stroke(hub)
     const end = v(cx * PITCH, 0, cz * PITCH)
     const dir = end.clone().normalize()
-    const a = dir.clone().multiplyScalar(1.0).setY(DECK + 0.14)
-    const b = end.clone().addScaledVector(dir, cx && cz ? -1.3 : -0.97).setY(DECK + 0.14)
+    const a = dir.clone().multiplyScalar(1.1).setY(FLOOR + 0.01)
+    const b = end.clone().addScaledVector(dir, cx && cz ? -1.2 : -0.85).setY(FLOOR + 0.01)
     const outer = Math.max(Math.abs(cx), Math.abs(cz)) > 1
-    tube(hub.group, [a, a.clone().lerp(b, 0.5).setY(DECK + (outer ? 1.2 : 0.38)), b], 0.05, link)
+    hairline(hub.group, outer ? [a, a.clone().lerp(b, 0.5).setY(FLOOR + 1.2), b] : [a, b], link)
     track(hub, {
       ref: { kind: "project", id: p.id },
-      obj: t, y: DECK, rise: 0.55, glow: strip, rest: 0.7, top, cell: [cx, cz], link,
+      obj: t, y: FLOOR, rise: 0.3, glow: tok.glow!, rest: REST, top: tok.top, link, fade: tok.fade,
       tip: [p.name, `${PROJECT_HEALTH[p.health].label} · ${p.progress}% · ${p.open} open`],
       href: `/tasks?project=${p.id}`,
     })
-    label(hub, t, v(0, 0, 1.05), p.name, String(p.open), { projectId: p.id })
   })
 
-  // --- Flow: a station per status, a block per task, a belt the followed task rides --------
+  // --- Flow: a tray per status, a block per task, a line the followed task rides --------------
   const flow = layer()
   const FM = kit(flow)
-  deck(flow, FM, 13, 7.6, -1.1)
   const tasksBy = (s: TaskStatus) => data.tasks.filter((t) => t.status === s)
   for (const lane of LANES) {
     const st = new THREE.Group()
-    st.position.set(lane.x, DECK, lane.z)
+    st.position.set(lane.x, FLOOR, lane.z)
     flow.group.add(st)
-    const strip = lit(flow, lane.status === "not_started" ? WARM_WHITE : (q) => q.status[lane.status], 0.9)
-    const base = footing(st, 2.3, 2.3, strip, FM)
+    const tone: Tone = (q) => q.status[lane.status]
     const name = STATUS[lane.status].label.split(" /")[0]
+    const tray = token(flow, st, 2.3, 0.14, (q) => q.paper, { fill: (q) => q.paper, ink: tone, glyph: lane.status, name, front: true }, tone)
     track(flow, {
       ref: { kind: "status", id: lane.status },
-      obj: st, y: DECK, rise: 0, glow: strip, rest: 0.9, top: base, href: `/tasks?status=${lane.status}`,
+      obj: st, y: FLOOR, rise: 0, glow: tray.glow!, rest: REST, top: tray.top, href: `/tasks?status=${lane.status}`,
       tip: [name, `${data.counts[lane.status]} tasks`],
     })
-    tasksBy(lane.status).forEach((t, i) => {
-      const col = i % 3, row = Math.floor(i / 3) % 3, level = Math.floor(i / 9)
-      const y = DECK + base + level * 0.56
-      const c = new THREE.Group()
-      c.position.set(lane.x + (col - 1) * 0.64, y, lane.z + (row - 1) * 0.64)
-      flow.group.add(c)
-      block(flow, FM, c, t, y, "status")
-    })
-    label(flow, st, v(0, 0, 1.4), name, String(data.counts[lane.status]), { status: lane.status })
+    stack(flow, FM, tasksBy(lane.status), lane.x, lane.z, tray.top, "status")
   }
-  // Copper lines between stations, and a branch back to Blocked.
+  // Hairlines between the trays, and a branch back to Blocked.
   for (let i = 0; i < 3; i++)
-    tube(flow.group, [v(LANES[i].x + 1.15, DECK + 0.14, 0), v(LANES[i + 1].x - 1.15, DECK + 0.14, 0)], 0.05, FM.copper)
-  tube(flow.group, [v(-1.4, DECK + 0.14, -1.15), v(-1.4, DECK + 0.14, -1.75)], 0.05, FM.copper)
-  // The belt: a dark frame, chrome rails and instanced treads that move while playing.
-  const beltY = DECK + 0.12
-  box(flow.group, 11.8, 0.1, 0.7, 0, DECK + 0.05, BELT_Z, FM.dark, 0.05)
-  for (const side of [-1, 1]) tube(flow.group, [v(-5.9, beltY + 0.07, BELT_Z + side * 0.36), v(5.9, beltY + 0.07, BELT_Z + side * 0.36)], 0.028, FM.chrome)
+    hairline(flow.group, [v(LANES[i].x + 1.25, FLOOR + 0.01, 0), v(LANES[i + 1].x - 1.25, FLOOR + 0.01, 0)], FM.stroke)
+  hairline(flow.group, [v(-1.4, FLOOR + 0.01, -1.25), v(-1.4, FLOOR + 0.01, -1.65)], FM.stroke)
+  // The line: a paper bed between two hairlines, with dashes that move while playing.
+  const beltY = FLOOR + 0.05
+  box(flow.group, 11.8, 0.05, 0.7, 0, FLOOR + 0.025, BELT_Z, FM.paper, 0.02)
+  for (const side of [-1, 1]) hairline(flow.group, [v(-5.9, beltY, BELT_Z + side * 0.33), v(5.9, beltY, BELT_Z + side * 0.33)], FM.stroke)
   const SLATS = 70
-  const slats = new THREE.InstancedMesh(geo("slat", () => new RoundedBoxGeometry(0.12, 0.05, 0.62, 2, 0.012)), FM.body, SLATS)
-  slats.receiveShadow = true
+  const slats = new THREE.InstancedMesh(geo("slat", () => new THREE.BoxGeometry(0.03, 0.006, 0.42)), FM.line, SLATS)
   slats.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   flow.group.add(slats)
   const dummy = new THREE.Object3D()
@@ -816,74 +1025,67 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     slats.instanceMatrix.needsUpdate = true
   }
   moveSlats(0)
-  // One real task rides the belt as a card with an amber halo: the one "Following one task" names.
+  // One real task rides the line as a paper card with an in-progress band and a ring around it:
+  // the one "Following one task" names.
   const runner = new THREE.Group()
   flow.group.add(runner)
-  box(runner, 0.47, 0.71, 0.04, 0, 0.36, 0, FM.ivory, 0.022)
-  box(runner, 0.36, 0.12, 0.045, 0, 0.56, 0.004, lit(flow, AMBER, 1.4), 0.01)
-  const halo = new THREE.Mesh(
-    new THREE.RingGeometry(0.4, 0.414, 40),
-    own(flow, new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, side: THREE.DoubleSide, depthWrite: false }), 0.8)
-  )
+  box(runner, 0.47, 0.71, 0.04, 0, 0.36, 0, FM.paper, 0.022)
+  box(runner, 0.36, 0.12, 0.045, 0, 0.56, 0.004, lit(flow, (q) => q.status.in_progress, 0.4), 0.01)
+  const haloMat = own(flow, new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }), 0.8)
+  tints.push((q) => haloMat.color.copy(q.status.in_progress))
+  haloMat.color.copy(pal.status.in_progress)
+  const halo = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.414, 40), haloMat)
   halo.rotation.x = -Math.PI / 2
   halo.position.y = 0.01
   runner.add(halo)
-  runner.position.set(-5.6, beltY + 0.03, BELT_Z)
+  runner.position.set(-5.6, beltY, BELT_Z)
 
-  // --- Team: a station per person, a stack of blocks per open task, and unassigned work ------
+  // --- Team: a token per person raised on a stack of their open work, and unassigned work -----
   const team = layer()
   const TM = kit(team)
   const n = data.members.length
   const perRow = n > 4 ? Math.ceil(n / 2) : Math.max(1, n)
   const rows = n > 4 ? 2 : 1
   const spare = data.unassigned.length > 0
-  // The Unassigned station sits to the right of the people, on the same deck.
+  // The Unassigned tray sits to the right of the people.
   const spareX = ((perRow - 1) / 2) * 2.5 + 2.9
-  const deckW = Math.max(4, perRow * 2.5 + 1.4) + (spare ? 2.9 : 0)
-  deck(team, TM, deckW, rows === 2 ? 6.4 : 3.6, 0, spare ? 1.45 : 0)
-  const working = lit(team, (q) => q.status.in_progress, 0.15, 0.45, 0.3)
-  const stuck = lit(team, (q) => q.status.blocked, 0.15, 0.45, 0.3)
+  team.group.position.x = spare ? -1.45 : 0
+  const working = lit(team, (q) => q.status.in_progress, 0.1, 0, 0.45)
+  const stuck = lit(team, (q) => q.status.blocked, 0.1, 0, 0.45)
   data.members.forEach((m, i) => {
     const row = Math.floor(i / perRow), col = i % perRow
     const inRow = row === 0 ? Math.min(perRow, n) : n - perRow
     const x = (col - (inRow - 1) / 2) * 2.5
     const z = rows === 2 ? (row ? 1.4 : -1.4) : 0
     const tower = new THREE.Group()
-    tower.position.set(x, DECK, z)
+    tower.position.set(x, FLOOR, z)
     team.group.add(tower)
-    // The strip turns red when the person has overdue work.
-    const strip = lit(team, m.overdue ? (q) => q.overdue : AMBER, 0.8)
-    const base = footing(tower, 1.6, 1.6, strip, TM)
+    // The plate turns red when the person has overdue work.
+    const strip = lit(team, (q) => (m.overdue ? q.overdue : q.muted), REST)
+    mesh(tower, slab(1.4, PLATE), strip, 0, 0, 0)
+    // One slab per open task (in progress and blocked in their colours), the person on top.
     const slabs = Math.min(m.open, 12)
     const active = m.active - m.blocked
-    for (let s = 0; s < slabs; s++)
-      box(tower, 1.1, 0.16, 1.1, 0, base + 0.1 + s * 0.2, 0, s < active ? working : s < m.active ? stuck : TM.ivory, 0.03)
-    // Chrome, not amber: amber would read as one more "In progress" block.
-    box(tower, 1.16, 0.06, 1.16, 0, base + 0.05 + slabs * 0.2, 0, TM.chrome, 0.02)
-    const top = base + 0.08 + slabs * 0.2
+    for (let s = 0; s < slabs; s++) mesh(tower, slab(1.1, 0.13), s < active ? working : s < m.active ? stuck : TM.neutral, 0, PLATE + s * 0.16, 0)
+    const tok = token(
+      team, tower, 1.3, 0.22, (q) => q.ink,
+      { fill: (q) => q.paper, ink: (q) => q.ink, text: initials(m.name), image: m.image, name: m.name.split(" ")[0] },
+      null, PLATE + slabs * 0.16
+    )
     const meta = [`${m.open} open`, m.active && `${m.active} in progress`, m.overdue && `${m.overdue} overdue`]
     track(team, {
       ref: { kind: "member", id: m.id },
-      obj: tower, y: DECK, rise: 0.18, glow: strip, rest: 0.8, top,
+      obj: tower, y: FLOOR, rise: 0.2, glow: strip, rest: REST, top: tok.top, fade: [strip, ...tok.fade],
       tip: [m.name, meta.filter(Boolean).join(" · ")],
       href: `/tasks?person=${m.id}`,
     })
-    label(team, tower, v(0, 0, 1.0), m.name.split(" ")[0], String(m.open), { assigneeId: m.id })
   })
   if (spare) {
     const st = new THREE.Group()
-    st.position.set(spareX, DECK, 0)
+    st.position.set(spareX, FLOOR, 0)
     team.group.add(st)
-    const base = footing(st, 2.3, 2.3, lit(team, WARM_WHITE, 0.9), TM)
-    data.unassigned.forEach((t, i) => {
-      const col = i % 3, row = Math.floor(i / 3) % 3, level = Math.floor(i / 9)
-      const y = DECK + base + level * 0.56
-      const c = new THREE.Group()
-      c.position.set(spareX + (col - 1) * 0.64, y, (row - 1) * 0.64)
-      team.group.add(c)
-      block(team, TM, c, t, y, "assign")
-    })
-    label(team, st, v(0, 0, 1.4), "Unassigned", String(data.unassigned.length))
+    const tray = token(team, st, 2.3, 0.14, (q) => q.paper, { fill: (q) => q.paper, ink: (q) => q.muted, glyph: "unassigned", name: "Unassigned", front: true }, (q) => q.muted)
+    stack(team, TM, data.unassigned, spareX, 0, tray.top, "assign")
   }
 
   const layers: Record<Mode, Layer> = { hub, flow, team }
@@ -891,7 +1093,26 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     const sphere = new THREE.Box3().setFromObject(L.group).getBoundingSphere(new THREE.Sphere())
     L.radius = Math.max(3, sphere.radius)
   }
-  const pickables = (L: Layer) => L.items.map((it) => it.obj)
+  // Hit boxes: one invisible box per item, sized to it and reaching down as far as it rises, so a
+  // lifted token never slips out from under the pointer (no flicker at its edges). Hover tests
+  // these boxes only, never the meshes, which is exact from every angle and cheap.
+  const hitOf = new Map<THREE.Object3D, Item>()
+  const hitMat = new THREE.MeshBasicMaterial()
+  const bounds = new THREE.Box3(), extent = new THREE.Vector3(), mid = new THREE.Vector3()
+  scene.updateMatrixWorld(true)
+  for (const L of Object.values(layers))
+    for (const it of L.items) {
+      bounds.setFromObject(it.obj).getSize(extent)
+      it.obj.worldToLocal(bounds.getCenter(mid))
+      const box = new THREE.Mesh(new THREE.BoxGeometry(extent.x, extent.y + it.rise, extent.z), hitMat)
+      box.position.set(mid.x, mid.y - it.rise / 2, mid.z)
+      box.visible = false
+      it.obj.add(box)
+      L.proxies.push(box)
+      hitOf.set(box, it)
+    }
+  // Canvas faces use Geist; once it has loaded, engrave them again in it.
+  document.fonts?.ready.then(() => alive && tints.forEach((paint) => paint(pal)))
 
   // --- pointer, camera, sizing, theme -------------------------------------
   const pointer = new THREE.Vector2()
@@ -905,29 +1126,17 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     selected = layers[mode].items.find((it) => keyOf(it) === view.selected) ?? null
   }
   const ray = new THREE.Raycaster()
-  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const hit = new THREE.Vector3()
   const setPointer = (e: PointerEvent) => {
     const r = root.getBoundingClientRect()
     pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
   }
+  // Re-aimed only when the pointer or the camera moved, not every frame.
+  let aim = true
   const pick = (): Item | null => {
-    const L = layers[mode]
     ray.setFromCamera(pointer, camera)
-    if (L === hub) {
-      // Nearest tile to the pointer on the floor, like hairline's Hub: no need to land on it exactly.
-      if (!ray.ray.intersectPlane(ground, hit)) return null
-      let best: Item | null = null, dist = PITCH * 0.75
-      for (const it of L.items) {
-        const d = Math.hypot(it.obj.position.x - hit.x, it.obj.position.z - hit.z)
-        if (d < dist) [best, dist] = [it, d]
-      }
-      return best
-    }
-    // The first mesh hit, then up its parents to the block, station or tower it belongs to.
-    let o: THREE.Object3D | null = ray.intersectObjects(pickables(L), true).find((h) => h.object.type === "Mesh")?.object ?? null
-    while (o && !itemOf.has(o)) o = o.parent
-    return o ? itemOf.get(o)! : null
+    const h = ray.intersectObjects(layers[mode].proxies, false)[0]
+    return h ? hitOf.get(h.object)! : null
   }
 
   // --- camera: a goal the camera eases to, after the factory scene -----------
@@ -935,6 +1144,7 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   const goalTarget = new THREE.Vector3(0, 0.4, 0)
   const viewDir = new THREE.Vector3(1, 0.85, 1.1).normalize()
   let animating = true, flightT = 0, runT = 0
+  let spin = 0 // radians of a turn still to go
   const fit = () =>
     (layers[mode].radius * 1.05) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect)
   // Focus in Flow with nothing picked rides along with the walking task.
@@ -984,6 +1194,36 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     animating = false
     lastInput = performance.now()
   })
+  // Moving around stays over the work: the point you look at can't leave the current view.
+  const clampPan = () => {
+    const r = layers[mode].radius, t = controls.target
+    const x = THREE.MathUtils.clamp(t.x, -r, r) - t.x, z = THREE.MathUtils.clamp(t.z, -r, r) - t.z
+    if (!x && !z) return
+    t.x += x
+    t.z += z
+    camera.position.x += x
+    camera.position.z += z
+  }
+  controls.addEventListener("change", () => {
+    aim = true
+    clampPan()
+  })
+  // A sideways two-finger swipe (or Shift + wheel) moves left and right along the floor; up and
+  // down still zoom. Runs before MapControls, which would zoom on any wheel.
+  const side = new THREE.Vector3()
+  const onWheel = (e: WheelEvent) => {
+    if (e.ctrlKey || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    const perPx = (2 * camera.position.distanceTo(controls.target) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / height
+    side.setFromMatrixColumn(camera.matrix, 0).setY(0).normalize().multiplyScalar(e.deltaX * perPx)
+    camera.position.add(side)
+    controls.target.add(side)
+    clampPan()
+    animating = false
+    aim = true
+    lastInput = performance.now()
+  }
   controls.addEventListener("end", () => {
     dragging = false
     lastInput = performance.now()
@@ -992,7 +1232,7 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   let grab: { it: Item; id: number; moved: boolean } | null = null
   let dropOn: Item | null = null
   let pending: Item | null = null // dropped and saving: it pulses until the new data rebuilds the scene
-  const carry = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(DECK + 0.6))
+  const carry = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(FLOOR + 0.6))
   const targetsFor = (it: Item) =>
     it.drag === "status"
       ? flow.items.filter((t) => t.ref.kind === "status" && t.ref.id !== it.status)
@@ -1002,6 +1242,7 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     setPointer(e)
     ray.setFromCamera(pointer, camera)
     if (!ray.ray.intersectPlane(carry, hit)) return
+    it.obj.parent!.worldToLocal(hit) // Team is shifted to centre it with the Unassigned tray
     it.obj.position.x = hit.x
     it.obj.position.z = hit.z
     dropOn = null
@@ -1023,11 +1264,12 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     }
     if (e.pointerType === "touch") return
     inside = true
+    aim = true
     setPointer(e)
     lastInput = performance.now()
   }
   const onLeave = () => (inside = false)
-  // Runs before OrbitControls (capture), so grabbing a block never starts a rotate.
+  // Runs before MapControls (capture), so grabbing a block never starts a pan.
   const onDown = (e: PointerEvent) => {
     downX = e.clientX
     downY = e.clientY
@@ -1079,6 +1321,7 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   el.addEventListener("pointerleave", onLeave)
   el.addEventListener("pointerdown", onDown, { capture: true })
   el.addEventListener("pointerup", onUp)
+  el.addEventListener("wheel", onWheel, { capture: true, passive: false })
 
   let lost = false
   const onLost = (e: Event) => {
@@ -1108,6 +1351,7 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
   const p = new THREE.Vector3()
   const mainLanes = LANES.slice(0, 4)
   let last = performance.now(), raf = 0, ready = false, step = -1, frames = 0, measured = 0, simT = 0
+  let tipOn = false, tipX = 0, tipY = 0, tipFor: Item | null = null
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame)
     const dt = Math.min((now - last) / 1000, 0.05)
@@ -1120,65 +1364,54 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
       runT = (runT + dt / 9) % 1
     }
 
-    if (grab?.moved) hot = null
-    else if (inside && !dragging) hot = pick()
-    else if (!inside) hot = null
-    if (!grab?.moved) el.style.cursor = hot ? (hot.drag && hooks.onMove ? "grab" : "pointer") : "grab"
+    if (grab?.moved || dragging || !inside) hot = null
+    else if (aim) {
+      hot = pick()
+      aim = false
+    }
+    if (!grab?.moved) el.style.cursor = hot ? (hot.drag && hooks.onMove ? "grab" : "pointer") : dragging ? "grabbing" : "grab"
 
     for (const [key, layerOf] of Object.entries(layers) as [Mode, Layer][]) {
       layerOf.weight += ((key === mode ? 1 : 0) - layerOf.weight) * ease(7)
       const w = layerOf.weight
       layerOf.group.visible = w > 0.01
-      if (!layerOf.group.visible) {
-        // Hidden, not just transparent, so a "+" in another view can't be clicked.
-        for (const lb of layerOf.labels) lb.el.style.visibility = "hidden"
-        continue
-      }
+      if (!layerOf.group.visible) continue
       if (!reduce) layerOf.group.position.y = (1 - w) * -0.5
       // Fading views go transparent; at rest they render opaque, with full shadows.
+      // Filtered-out tokens go see-through too (their `dim`, set below).
       for (const m of layerOf.mats) {
-        const fading = w < 0.999 || m.userData.base < 1
+        const dim = m.userData.dim ?? 0
+        const fading = w < 0.999 || m.userData.base < 1 || dim > 0.01
         if (m.transparent !== fading) {
           m.transparent = fading
           m.needsUpdate = true
         }
-        m.opacity = m.userData.base * w
+        m.opacity = m.userData.base * w * (1 - dim * 0.7)
       }
-      const lead = hot ?? selected ?? dropOn
       const keep = hooks.highlight()
       for (const it of layerOf.items) {
-        // Search and filters: what doesn't match dims (blocks fade to steel, strips go dark).
+        // Search and filters: what doesn't match dims (blocks fade to paper, tokens go see-through).
         const out = !!keep && it.ref.kind !== "status" && it.ref.kind !== "workspace" && !keep.has(keyOf(it))
         it.dim += ((out ? 1 : 0) - it.dim) * ease(8)
         const carried = grab?.moved && it === grab.it
         const on = it === hot || it === selected || it === dropOn || carried
-        const near = !on && lead?.cell && it.cell && Math.max(Math.abs(lead.cell[0] - it.cell[0]), Math.abs(lead.cell[1] - it.cell[1])) === 1
-        const target = carried ? 0.7 : on ? it.rise : near ? 0.2 : 0
-        it.lift += (target - it.lift) * ease(14)
+        // One smooth lift for what's under the pointer; nothing around it moves.
+        it.lift += ((carried ? 0.7 : on ? it.rise : 0) - it.lift) * ease(10)
         it.obj.position.y = it.y + it.lift
         const pulse = it === pending ? 1.2 + Math.sin(now / 120) * 1.1 : null
-        const glowTo = pulse ?? (on ? 3.5 : out ? 0 : keep && it.tone ? 0.55 : it.rest)
+        const glowTo = pulse ?? (on ? (it.tone ? 0.35 : 1.1) : out ? 0 : keep && it.tone ? 0.4 : it.rest)
         it.glow.emissiveIntensity += (glowTo - it.glow.emissiveIntensity) * ease(10)
         if (it.tone) {
-          it.glow.color.copy(it.tone(pal)).lerp(GHOST, it.dim * 0.85)
+          it.glow.color.copy(it.tone(pal)).lerp(pal.ghost, it.dim * 0.85)
           it.glow.emissive.copy(it.glow.color)
         }
         for (const m of it.marks ?? []) m.emissiveIntensity = m.userData.glow * (1 - it.dim * 0.9)
-        if (it.link) it.link.emissiveIntensity += ((on ? 1.6 : 0) - it.link.emissiveIntensity) * ease(10)
-      }
-      for (const lb of layerOf.labels) {
-        const owner = itemOf.get(lb.obj)
-        p.copy(lb.at)
-        lb.obj.localToWorld(p).project(camera)
-        const x = (p.x * 0.5 + 0.5) * width, y = (-p.y * 0.5 + 0.5) * height
-        lb.el.style.transform = `translate(${x}px, ${y}px) translateX(-50%)`
-        lb.el.style.opacity = String(w * (1 - (owner?.dim ?? 0) * 0.65))
-        lb.el.style.visibility = w > 0.3 ? "visible" : "hidden"
+        for (const m of it.fade ?? []) m.userData.dim = it.dim
+        if (it.link) it.link.userData.base += ((on ? 0.9 : LINE) - it.link.userData.base) * ease(10)
       }
     }
 
     // The followed task walks the Flow line, hopping lane to lane, fading in and out at its ends.
-    hubGear.rotation.y = simT * 1.1
     if (layers.flow.weight > 0.01) {
       runner.position.x = -5.6 + runT * 11.2
       runner.scale.setScalar(Math.max(0.05, Math.min(1, runT * 8, (1 - runT) * 8)))
@@ -1210,6 +1443,13 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
       if (cam !== "flight" && !followsRunner() && camera.position.distanceTo(goalPos) < 0.015 && controls.target.distanceTo(goalTarget) < 0.015)
         animating = false
     }
+    // A turn from the buttons: the rest of it eases out around the point the view looks at.
+    if (spin) {
+      const a = Math.abs(spin) < 0.001 ? spin : spin * ease(7)
+      spin -= a
+      p.subVectors(camera.position, controls.target).applyAxisAngle(UP, a)
+      camera.position.addVectors(controls.target, p)
+    }
     controls.autoRotate =
       playing && !reduce && !dragging && !animating && !hot && cam === "overview" && now - lastInput > 6500
     controls.update(dt)
@@ -1220,11 +1460,22 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
       p.project(camera)
       const x = Math.min(width - 236, Math.max(8, (p.x * 0.5 + 0.5) * width - 40))
       const y = Math.max(56, (-p.y * 0.5 + 0.5) * height - 64)
-      tip.style.transform = `translate(${x}px, ${y}px)`
-      tipTitle.textContent = hot.tip[0]
-      tipMeta.textContent = hot.tip[1]
-      tip.style.opacity = "1"
-    } else tip.style.opacity = "0"
+      // Shown: glide to the next item. Hidden: appear in place.
+      const k = tipOn ? ease(18) : 1
+      tipX += (x - tipX) * k
+      tipY += (y - tipY) * k
+      tip.style.transform = `translate(${tipX}px, ${tipY}px)`
+      if (tipFor !== hot) {
+        tipFor = hot
+        tipTitle.textContent = hot.tip[0]
+        tipMeta.textContent = hot.tip[1]
+      }
+      if (!tipOn) tip.style.opacity = "1"
+      tipOn = true
+    } else if (tipOn) {
+      tip.style.opacity = "0"
+      tipOn = false
+    }
 
     renderer.render(scene, camera)
     if (!ready) {
@@ -1252,6 +1503,7 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
       if (next.cam !== cam && next.cam === "flight") flightT = 0
       cam = next.cam
       playing = next.playing
+      aim = true
       if (moved) {
         lastInput = performance.now()
         setGoal()
@@ -1260,6 +1512,15 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
     },
     select(on) {
       if (!on) selected = null
+    },
+    home() {
+      setGoal()
+      animating = true
+    },
+    turn(dir) {
+      spin += (dir * Math.PI) / 4
+      animating = false
+      lastInput = performance.now()
     },
     focus(pick) {
       // A task can sit in Flow (by status) or, unassigned, in Team.
@@ -1294,19 +1555,22 @@ function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View
       el.removeEventListener("pointerleave", onLeave)
       el.removeEventListener("pointerdown", onDown, { capture: true })
       el.removeEventListener("pointerup", onUp)
+      el.removeEventListener("wheel", onWheel, { capture: true })
       el.removeEventListener("webglcontextlost", onLost)
       el.removeEventListener("webglcontextrestored", onRestored)
       controls.dispose()
+      alive = false
       scene.traverse((o) => {
         const m = o as THREE.Mesh
         m.geometry?.dispose()
         ;(Array.isArray(m.material) ? m.material : m.material ? [m.material] : []).forEach((x) => x.dispose())
       })
+      for (const t of faces) t.dispose()
+      stripes.dispose()
       env.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
       el.remove()
-      overlay.remove()
       tip.remove()
     },
   }

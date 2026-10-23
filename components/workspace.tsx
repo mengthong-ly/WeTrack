@@ -95,8 +95,7 @@ export function Workspace({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<Filter>("all")
-  // null: the breakpoint decides (open on large screens); a click makes it explicit.
-  const [outline, setOutline] = useState<boolean | null>(null)
+  const [outline, setOutline] = useState(false)
   const [focus, setFocus] = useState<{ pick: ScenePick; n: number } | null>(null)
   const search = useRef<HTMLInputElement>(null)
 
@@ -189,7 +188,6 @@ export function Workspace({
 
   const project = panel?.kind === "project" ? scene.projects.find((p) => p.id === panel.id) : undefined
   const member = panel?.kind === "member" ? scene.members.find((m) => m.id === panel.id) : undefined
-  const shown = outline ?? null
 
   return (
     <>
@@ -203,7 +201,6 @@ export function Workspace({
           calm
           onPick={openPanel}
           onMove={onMove}
-          onAdd={onAdd}
           focusOn={focus}
           highlight={highlight}
           className="size-full"
@@ -212,8 +209,8 @@ export function Workspace({
               <button
                 type="button"
                 aria-label="Outline"
-                aria-pressed={shown ?? undefined}
-                onClick={() => setOutline((o) => !(o ?? matchMedia("(min-width: 1024px)").matches))}
+                aria-pressed={outline}
+                onClick={() => setOutline((o) => !o)}
                 className={round}
               >
                 <PanelLeftIcon className="size-5" />
@@ -230,7 +227,7 @@ export function Workspace({
           }
         />
         <Outline
-          className={cn(shown === null ? "max-lg:hidden" : !shown && "hidden")}
+          className={cn(!outline && "hidden")}
           search={search}
           query={query}
           setQuery={setQuery}
@@ -523,11 +520,11 @@ function Legend() {
           </li>
         </ul>
         <ul className="flex flex-col gap-1 text-sm">
+          <li>Drag to move around. Shift-drag, right-drag or the turn buttons to turn. Scroll or pinch to zoom.</li>
           <li>Click anything to open it.</li>
           <li>Drag a block onto another status, or unassigned work onto a person.</li>
           <li>
-            <span className="text-muted-foreground">+</span> on a label adds a task there. Press{" "}
-            <kbd className="rounded-md bg-muted px-1.5 text-[11px]">/</kbd> to search.
+            Press <kbd className="rounded-md bg-muted px-1.5 text-[11px]">/</kbd> to search. Overview brings you back.
           </li>
         </ul>
         <button

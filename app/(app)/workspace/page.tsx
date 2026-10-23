@@ -26,7 +26,7 @@ export default async function WorkspacePage() {
 
   return (
     <Workspace
-      scene={sceneData(projects, tasks, members, today, { full: true })}
+      scene={sceneData(projects, tasks, members, today, { full: true, workspace: { name: me.orgName, logo: me.orgLogo } })}
       cards={tasks.map((t) => ({ ...toCard(t, today), projectId: t.projectId, assigneeId: t.assigneeId }))}
       members={members.map(({ id, name, image }) => ({ id, name, image }))}
       meId={me.user.id}
