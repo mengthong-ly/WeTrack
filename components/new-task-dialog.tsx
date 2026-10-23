@@ -40,6 +40,8 @@ import {
 import { type Captured, parseCapture } from "@/lib/quick-capture"
 
 const LAST_PROJECT = "wetrack:last-project"
+// Fields a caller can fill in before the dialog opens (a priority group's "Add task", a 3D station's "+").
+export type NewTaskPreset = { priority?: TaskPriority; status?: TaskStatus; projectId?: string; assigneeId?: string }
 const NO_PRESET = {}
 const propPick = "ml-0 min-w-0 flex-1 justify-between px-2.5 hover:bg-card dark:bg-transparent dark:hover:bg-card"
 const kbd = "grid h-5 min-w-5 place-items-center rounded-md bg-muted px-1 font-sans text-[11px] text-foreground"
@@ -69,7 +71,7 @@ export function NewTaskDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  preset?: { priority?: TaskPriority }
+  preset?: NewTaskPreset
   projects: ProjectLite[]
   members: MemberLite[]
   meId: string
@@ -88,13 +90,16 @@ export function NewTaskDialog({
   const [priority, setPriority] = useState<TaskPriority>(preset.priority ?? "normal")
   // Each open passes a new preset; apply it during render rather than in an effect.
   const [appliedPreset, setAppliedPreset] = useState(preset)
+  const [type, setType] = useState<TaskType>("development")
+  const [status, setStatus] = useState<TaskStatus>(preset.status ?? "not_started")
+  const [assigneeId, setAssigneeId] = useState(preset.assigneeId ?? meId)
   if (preset !== appliedPreset) {
     setAppliedPreset(preset)
     setPriority(preset.priority ?? "normal")
+    setStatus(preset.status ?? "not_started")
+    if (preset.projectId) setProjectId(preset.projectId)
+    if (preset.assigneeId) setAssigneeId(preset.assigneeId)
   }
-  const [type, setType] = useState<TaskType>("development")
-  const [status, setStatus] = useState<TaskStatus>("not_started")
-  const [assigneeId, setAssigneeId] = useState(meId)
   const [title, setTitle] = useState("")
   const [range, setRange] = useState<DateRange>()
   const [captured, setCaptured] = useState<Captured>({ title: "" })

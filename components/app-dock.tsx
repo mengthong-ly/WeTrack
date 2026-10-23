@@ -1,6 +1,6 @@
 "use client"
 
-import { FolderIcon, LayoutGridIcon, ListChecksIcon, PlusIcon, UsersIcon } from "lucide-react"
+import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, PlusIcon, UsersIcon } from "lucide-react"
 import { motion } from "motion/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -8,13 +8,13 @@ import { useEffect, useState } from "react"
 
 import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { spring } from "@/components/motion-bits"
-import { NewTaskDialog } from "@/components/new-task-dialog"
-import type { TaskPriority } from "@/lib/db/enums"
+import { NewTaskDialog, type NewTaskPreset } from "@/components/new-task-dialog"
 import type { MemberLite, ProjectLite } from "@/lib/options"
 import { cn, isTyping } from "@/lib/utils"
 
 const NAV = [
   { href: "/", label: "Home", icon: LayoutGridIcon },
+  { href: "/workspace", label: "Workspace", icon: BoxIcon },
   { href: "/tasks", label: "Tasks", icon: ListChecksIcon },
   { href: "/projects", label: "Projects", icon: FolderIcon },
   { href: "/team", label: "Team", icon: UsersIcon },
@@ -25,10 +25,10 @@ export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[];
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   // A fresh object per open, so the dialog resets to these defaults each time.
-  const [preset, setPreset] = useState<{ priority?: TaskPriority }>({})
+  const [preset, setPreset] = useState<NewTaskPreset>({})
 
   useEffect(() => {
-    const openNew = (p: { priority?: TaskPriority } = {}) => {
+    const openNew = (p: NewTaskPreset = {}) => {
       setPreset(p)
       setOpen(true)
     }
@@ -38,7 +38,8 @@ export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[];
         openNew()
       }
     }
-    // NEW_TASK_EVENT may carry defaults, e.g. { priority } from a priority group's "Add task" row.
+    // NEW_TASK_EVENT may carry defaults: { priority } from a priority group's "Add task" row,
+    // { status | projectId | assigneeId } from a station's "+" in the 3D workspace.
     const onNew = (e: Event) => openNew((e as CustomEvent).detail ?? {})
     window.addEventListener("keydown", onKey)
     window.addEventListener(NEW_TASK_EVENT, onNew)
@@ -76,7 +77,8 @@ export function AppDock(props: { projects: ProjectLite[]; members: MemberLite[];
                     />
                   )}
                   <Icon className="relative size-5" />
-                  <span className={cn("relative", active ? "inline" : "sr-only sm:not-sr-only sm:hidden")}>{label}</span>
+                  {/* Icons only on phones (five fit at 375px); the active label shows from sm. Always named for screen readers. */}
+                  <span className={active ? "relative max-sm:sr-only" : "sr-only"}>{label}</span>
                 </Link>
               )
             })}

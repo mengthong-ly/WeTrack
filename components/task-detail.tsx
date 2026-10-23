@@ -98,11 +98,14 @@ export function TaskDetail({
   projects,
   members,
   meetings,
+  inPanel = false,
 }: {
   task: TaskDetailData
   projects: ProjectLite[]
   members: MemberLite[]
   meetings: MeetingItem[]
+  /** Shown in the workspace's side sheet: after a delete, go back to the workspace. */
+  inPanel?: boolean
 }) {
   const router = useRouter()
   const save = useSave(task.id)
@@ -132,7 +135,8 @@ export function TaskDetail({
                   const res = await deleteTask(task.id)
                   if (res.error) return toast.error(res.error)
                   toast.success("Task deleted")
-                  router.push("/tasks")
+                  if (inPanel) router.back()
+                  else router.push("/tasks")
                 }}
               >
                 <Trash2Icon />
