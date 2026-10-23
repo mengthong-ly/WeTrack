@@ -13,6 +13,7 @@ import {
   XIcon,
 } from "lucide-react"
 import { format } from "date-fns"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
@@ -23,7 +24,6 @@ import { createTask } from "@/app/actions"
 import { ProjectDot } from "@/components/bits"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { Pick } from "@/components/pick"
-import { RichText } from "@/components/rich-text"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -38,6 +38,12 @@ import {
   UNASSIGNED,
 } from "@/lib/options"
 import { type Captured, parseCapture } from "@/lib/quick-capture"
+
+// The dialog sits in every page's layout; the editor (Tiptap) loads the first time it opens.
+// The placeholder holds the editor's height (toolbar + two lines) so the dialog doesn't jump.
+const RichText = dynamic(() => import("@/components/rich-text").then((m) => m.RichText), {
+  loading: () => <div className="h-24" />,
+})
 
 const LAST_PROJECT = "wetrack:last-project"
 // Fields a caller can fill in before the dialog opens (a priority group's "Add task", a 3D station's "+").

@@ -1,6 +1,7 @@
 import "server-only"
 
 import { and, asc, countDistinct, desc, eq, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm"
+import { cache } from "react"
 
 import { CLIENT_KINDS } from "@/lib/client-update"
 import { db } from "@/lib/db"
@@ -18,21 +19,23 @@ import {
 } from "@/lib/db/schema"
 import { canJoin, formatSlot, joinUrl, type Viewer } from "@/lib/meetings"
 
-export function listProjects(orgId: string) {
-  return db.query.project.findMany({
+// The (app) layout and its pages both read projects and members: cache() runs each once per request.
+// Async so the cached value is a promise (a Drizzle query re-runs every time it's awaited).
+export const listProjects = cache(async (orgId: string) =>
+  db.query.project.findMany({
     where: and(eq(project.organizationId, orgId), eq(project.archived, false)),
     orderBy: asc(project.name),
   })
-}
+)
 
-export function listMembers(orgId: string) {
-  return db
+export const listMembers = cache(async (orgId: string) =>
+  db
     .select({ id: user.id, name: user.name, email: user.email, image: user.image, role: member.role })
     .from(member)
     .innerJoin(user, eq(user.id, member.userId))
     .where(eq(member.organizationId, orgId))
     .orderBy(asc(user.name))
-}
+)
 
 // Archived projects (and their tasks) leave every list until they're restored.
 export function listArchivedProjects(orgId: string) {
@@ -77,8 +80,9 @@ export function taskIndex(orgId: string) {
 }
 export type TaskIndexRow = Awaited<ReturnType<typeof taskIndex>>[number]
 
-export function getTask(orgId: string, id: string) {
-  return db.query.task.findFirst({
+// Cached: a task page's generateMetadata and the page itself both read it.
+export const getTask = cache(async (orgId: string, id: string) =>
+  db.query.task.findFirst({
     where: and(eq(task.organizationId, orgId), eq(task.id, id)),
     with: {
       project: true,
@@ -91,7 +95,7 @@ export function getTask(orgId: string, id: string) {
       },
     },
   })
-}
+)
 
 export function recentActivity(orgId: string, limit = 8, actorId?: string) {
   return db

@@ -1,28 +1,23 @@
 import Link from "next/link"
+import { Suspense } from "react"
 
-import { AppDock } from "@/components/app-dock"
+import { AppDock, NewTaskHost } from "@/components/app-dock"
 import { CommandMenu } from "@/components/command-menu"
 import { Logo } from "@/components/logo"
 import { MeetingBanner } from "@/components/meeting-banner"
 import { NewMeetingDialog } from "@/components/new-meeting-dialog"
+import { HeaderToolsSkeleton } from "@/components/page-skeleton"
 import { UserMenu } from "@/components/user-menu"
 import { hasCalendar } from "@/lib/google"
 import { bannerMeetings, listMembers, listProjects, taskIndex, upcomingMeetings } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const me = await requireMember()
-  const [projects, members, tasks, calendarConnected, soon] = await Promise.all([
-    listProjects(me.orgId),
-    listMembers(me.orgId),
-    taskIndex(me.orgId),
-    hasCalendar(me.user.id),
-    upcomingMeetings(me.orgId, { email: me.user.email, userId: me.user.id, days: 1 }),
-  ])
-  const projectsLite = projects.map(({ id, name, color }) => ({ id, name, color }))
-  const membersLite = members.map(({ id, name, image }) => ({ id, name, image }))
-  const googleEnabled = !!process.env.GOOGLE_CLIENT_ID
+const googleEnabled = !!process.env.GOOGLE_CLIENT_ID
 
+// The frame (logo, dock, header shapes) is static, so it's in every link's prefetched shell. The parts
+// that need the signed-in user stream into their own boundaries; requireMember and the shared queries
+// are cached per request, so the pieces don't repeat the work.
+export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <div className="mx-auto w-full max-w-6xl px-4 pt-6 pb-40 sm:px-8 sm:pt-10">
@@ -31,32 +26,65 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Link href="/" aria-label="WeTrack home">
             <Logo className="text-3xl sm:text-4xl" />
           </Link>
-          <div className="flex items-center gap-2">
-            <CommandMenu tasks={tasks} projects={projectsLite} members={membersLite} meId={me.user.id} />
-            <UserMenu
-              user={me.user}
-              orgName={me.orgName}
-              googleEnabled={googleEnabled}
-              calendarConnected={calendarConnected}
-            />
-          </div>
+          <Suspense fallback={<HeaderToolsSkeleton />}>
+            <HeaderTools />
+          </Suspense>
         </header>
         <div className="relative z-10">
-          <MeetingBanner meetings={bannerMeetings(soon, { userId: me.user.id, email: me.user.email, role: me.role })} />
+          <Suspense>
+            <Banner />
+          </Suspense>
         </div>
         {children}
       </div>
-      <AppDock
-        projects={projectsLite}
-        members={membersLite}
+      <AppDock />
+      <Suspense>
+        <Dialogs />
+      </Suspense>
+    </>
+  )
+}
+
+async function HeaderTools() {
+  const me = await requireMember()
+  const [projects, members, tasks, calendarConnected] = await Promise.all([
+    listProjects(me.orgId),
+    listMembers(me.orgId),
+    taskIndex(me.orgId),
+    hasCalendar(me.user.id),
+  ])
+  return (
+    <div className="flex items-center gap-2">
+      <CommandMenu
+        tasks={tasks}
+        projects={projects.map(({ id, name, color }) => ({ id, name, color }))}
+        members={members.map(({ id, name, image }) => ({ id, name, image }))}
         meId={me.user.id}
       />
-      <NewMeetingDialog
-        members={membersLite}
-        meId={me.user.id}
-        calendarConnected={calendarConnected}
-        googleEnabled={googleEnabled}
-      />
+      <UserMenu user={me.user} orgName={me.orgName} googleEnabled={googleEnabled} calendarConnected={calendarConnected} />
+    </div>
+  )
+}
+
+async function Banner() {
+  const me = await requireMember()
+  const soon = await upcomingMeetings(me.orgId, { email: me.user.email, userId: me.user.id, days: 1 })
+  return <MeetingBanner meetings={bannerMeetings(soon, { userId: me.user.id, email: me.user.email, role: me.role })} />
+}
+
+async function Dialogs() {
+  const me = await requireMember()
+  const [projects, members, calendarConnected] = await Promise.all([
+    listProjects(me.orgId),
+    listMembers(me.orgId),
+    hasCalendar(me.user.id),
+  ])
+  const projectsLite = projects.map(({ id, name, color }) => ({ id, name, color }))
+  const membersLite = members.map(({ id, name, image }) => ({ id, name, image }))
+  return (
+    <>
+      <NewTaskHost projects={projectsLite} members={membersLite} meId={me.user.id} />
+      <NewMeetingDialog members={membersLite} meId={me.user.id} calendarConnected={calendarConnected} googleEnabled={googleEnabled} />
     </>
   )
 }

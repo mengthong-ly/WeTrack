@@ -2,7 +2,6 @@
 
 import { CalendarCheckIcon, CalendarPlusIcon, LogOutIcon, MoonIcon, SunIcon } from "lucide-react"
 import { useTheme } from "next-themes"
-import { useRouter } from "next/navigation"
 
 import { UserAvatar } from "@/components/bits"
 import { connectGoogle } from "@/components/connect-google"
@@ -28,7 +27,6 @@ export function UserMenu({
   googleEnabled: boolean
   calendarConnected: boolean
 }) {
-  const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
   return (
     <DropdownMenu>
@@ -72,8 +70,10 @@ export function UserMenu({
         <DropdownMenuItem
           onClick={async () => {
             await authClient.signOut()
-            router.push("/sign-in")
-            router.refresh()
+            // A full load, not router.push: Next keeps recent pages alive (hidden) in memory, and
+            // the next person to sign in on this tab mustn't find the last one's pages there.
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- the full load is the point
+            window.location.href = "/sign-in"
           }}
         >
           <LogOutIcon />

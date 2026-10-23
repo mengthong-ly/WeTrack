@@ -1,6 +1,7 @@
 import "server-only"
 
 import { and, eq, like } from "drizzle-orm"
+import { cache } from "react"
 
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -34,9 +35,8 @@ async function calendarAccount(userId: string) {
   })
 }
 
-export async function hasCalendar(userId: string): Promise<boolean> {
-  return !!(await calendarAccount(userId))
-}
+// Cached per request: the header and the dialogs both ask.
+export const hasCalendar = cache(async (userId: string): Promise<boolean> => !!(await calendarAccount(userId)))
 
 /** A valid access token (Better Auth refreshes an expired one), or null when not connected. */
 export async function googleToken(userId: string): Promise<string | null> {

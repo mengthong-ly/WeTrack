@@ -117,6 +117,12 @@ Rules: animate only `opacity`, `transform`, `width` (progress) and layout. Lists
 `<AnimatePresence mode="popLayout">` + `layout`. Always respect reduced motion (`useReducedMotion`,
 as `CountUp` does). Never delay an action's result behind an animation.
 
+**Pages render as a static shell plus streamed data** (Cache Components + Partial Prefetching). The
+layout's frame (logo, dock, header shapes) and each area's `loading.tsx` are prefetched with every link,
+so a click paints at once. Anything that reads the signed-in user goes inside a `<Suspense>` with a
+skeleton from `page-skeleton.tsx`, never at the top of a layout. Heavy client code (three.js, Tiptap,
+the calendar) loads on demand or in idle time, never with the page.
+
 ---
 
 ## 3. Surfaces: how a page is built
@@ -176,6 +182,7 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Signed in with no team | `GetStarted` on `/onboarding` (auth card): `PillTabs` "Join a team" / "Create a team" on `bg-muted`, one form each (`h-12` input, hint line, `h-10` submit), "Signed in as … Sign out" footer. The join code input is mono, centred, uppercases and adds the dash as you type | `components/get-started.tsx` |
 | Join code (Team, owners and admins) | `JoinCodeCard`: the code in a mono `bg-card` pill inside a `rounded-panel bg-muted/70` box with `CopyButton`; *Create code* / *Make a new code* (`confirm()`) / *Turn off*, then "Expires in …". Code rules in `lib/join-code.ts` (12 characters, `XXXX-XXXX-XXXX`) | `components/join-code-card.tsx` |
 | Someone's role | `RoleMenu`: the `bg-muted` capitalised role chip. For the owner on anyone else's row it opens a `DropdownMenu`: "Role" radio items (label + muted hint, close on pick, optimistic) and a destructive "Remove from team" (`confirm()`) | `components/role-menu.tsx` |
+| Loading a page | A `loading.tsx` per area, built from `components/page-skeleton.tsx`: `PageSkeleton` (signed-in pages, `/r/[token]`: title and subtitle pills on `bg-card/70`, four `rounded-tile bg-card/60` tiles, a `rounded-sheet bg-card` sheet of `rounded-card bg-muted/60` rows), `DetailSkeleton` (the workspace's task sheet), `HeaderToolsSkeleton` (the header's search and account shapes, no pulse). Skeletons fade in after 150ms (ease-out-expo) so fast navigations never flash them, pulse with shadcn `Skeleton`, and stop pulsing with reduced motion. `/workspace` shows the scene's own Hub poster ("Setting up your workspace") in the scene's place instead, so the hand-off is seamless; `/onboarding` shows the GetStarted shape inside the auth card | `components/page-skeleton.tsx`, `app/**/loading.tsx` |
 | Primitive controls | `components/ui/*` (shadcn, Base UI) | `components/ui` |
 
 Recurring one-offs to copy, not reinvent:

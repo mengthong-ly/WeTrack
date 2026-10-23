@@ -30,6 +30,9 @@ export const auth = betterAuth({
   // "Connect Google Calendar" links a Google account to the signed-in user. Its address may differ
   // from the WeTrack email (personal sign-up, work calendar); only a signed-in user can link.
   account: { accountLinking: { enabled: true, allowDifferentEmails: true } },
+  // Every page and action reads the session: a signed cookie copy saves the database lookup for
+  // 5 minutes. The cost: a session revoked elsewhere keeps working until the copy expires.
+  session: { cookieCache: { enabled: true, maxAge: 5 * 60 } },
   plugins: [
     organization({
       // The owner alone manages people (roles, removal); admins share the join code, CEO link and

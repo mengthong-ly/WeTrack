@@ -14,7 +14,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { archiveProject, restoreProject, updateProject, updateTask } from "@/app/actions"
@@ -540,13 +540,16 @@ function Legend() {
 }
 
 // A task opened from the scene: the full task (TaskDetail) in a wide sheet. Closing goes back.
-export function TaskSheet({ title, children }: { title: string; children: React.ReactNode }) {
+// The sheet opens at once; its children stream in and bring their own (sr-only) SheetTitle.
+export function TaskSheet({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [open, setOpen] = useState(true)
+  // Next keeps a closed sheet's page alive (hidden): reset it as it hides, so coming back to the
+  // same task opens it again.
+  useLayoutEffect(() => () => setOpen(true), [])
   return (
     <Sheet open={open} onOpenChange={setOpen} onOpenChangeComplete={(o) => !o && router.back()}>
       <SheetContent showCloseButton={false} className={cn(sheet, "data-[side=right]:sm:max-w-xl")}>
-        <SheetTitle className="sr-only">{title}</SheetTitle>
         <div className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </SheetContent>
     </Sheet>

@@ -1,7 +1,6 @@
 "use client"
 
 import { motion } from "motion/react"
-import { useRouter } from "next/navigation"
 import { useState, useTransition } from "react"
 
 import { createWorkspace, joinWithCode } from "@/app/actions"
@@ -13,7 +12,6 @@ import { formatJoinCode } from "@/lib/join-code"
 
 // Signed in, not in a team yet: the only two ways forward.
 export function GetStarted({ email }: { email: string }) {
-  const router = useRouter()
   const [tab, setTab] = useState<"join" | "create">("join")
   return (
     <div className="flex flex-col gap-6">
@@ -39,8 +37,10 @@ export function GetStarted({ email }: { email: string }) {
           className="text-foreground underline-offset-4 hover:underline"
           onClick={async () => {
             await authClient.signOut()
-            router.push("/sign-in")
-            router.refresh()
+            // A full load, not router.push: Next keeps recent pages alive (hidden) in memory, and
+            // the next person to sign in on this tab mustn't find the last one's pages there.
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- the full load is the point
+            window.location.href = "/sign-in"
           }}
         >
           Sign out
