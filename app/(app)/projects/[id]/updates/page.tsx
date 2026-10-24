@@ -5,7 +5,7 @@ import { notFound } from "next/navigation"
 
 import { ProjectDot } from "@/components/bits"
 import { ClientUpdateComposer, UpdateHistory } from "@/components/client-update-composer"
-import { PageTransition, Reveal } from "@/components/motion-bits"
+import { Reveal } from "@/components/motion-bits"
 import { loadClientUpdates } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
@@ -22,59 +22,57 @@ export default async function ClientUpdatesPage({
   const { project, items, history } = data
 
   return (
-    <PageTransition>
-      <div className="flex flex-col gap-6">
-        <Reveal className="flex flex-col gap-4">
-          <Link
-            href="/projects"
-            aria-label="Back to projects"
-            className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card"
-          >
-            <ArrowLeftIcon className="size-5" />
-          </Link>
-          <div>
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <ProjectDot color={project.color} className="size-2.5" />
-              {project.name}
-            </p>
-            <h1 className="text-3xl font-light tracking-tight sm:text-4xl">
-              Client updates
-            </h1>
-            <p className="mt-1 text-muted-foreground">
-              {history.rows[0]
-                ? `Last update sent ${history.rows[0].when}`
-                : "No updates sent yet"}
-            </p>
-          </div>
-        </Reveal>
-
-        <Reveal
-          index={1}
-          className="rounded-sheet bg-card p-4 shadow-sm sm:p-6"
+    <div className="flex flex-col gap-6">
+      <Reveal className="flex flex-col gap-4">
+        <Link
+          href="/projects"
+          aria-label="Back to projects"
+          className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card"
         >
-          <h2 className="mb-4 text-lg">
-            Not yet reported{" "}
-            <span className="tabular text-muted-foreground">
-              · {items.length}
-            </span>
-          </h2>
-          <ClientUpdateComposer
-            key={items.map((i) => `${i.taskId}:${i.ids.length}`).join()}
-            projectId={project.id}
-            projectName={project.name}
-            items={items}
-            today={todayISO()}
-          />
-        </Reveal>
+          <ArrowLeftIcon className="size-5" />
+        </Link>
+        <div>
+          <p className="flex items-center gap-2 text-muted-foreground">
+            <ProjectDot color={project.color} className="size-2.5" />
+            {project.name}
+          </p>
+          <h1 className="text-3xl font-light tracking-tight sm:text-4xl">
+            Client updates
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            {history.rows[0]
+              ? `Last update sent ${history.rows[0].when}`
+              : "No updates sent yet"}
+          </p>
+        </div>
+      </Reveal>
 
-        <Reveal
-          index={2}
-          className="rounded-sheet bg-card p-4 shadow-sm sm:p-6"
-        >
-          <h2 className="mb-4 text-lg">History</h2>
-          <UpdateHistory projectId={project.id} latest={history.rows} total={history.total} />
-        </Reveal>
-      </div>
-    </PageTransition>
+      <Reveal
+        index={1}
+        className="rounded-sheet bg-card p-4 shadow-sm sm:p-6"
+      >
+        <h2 className="mb-4 text-lg">
+          Not yet reported{" "}
+          <span className="tabular text-muted-foreground">
+            · {items.length}
+          </span>
+        </h2>
+        <ClientUpdateComposer
+          key={items.map((i) => `${i.taskId}:${i.ids.length}`).join()}
+          projectId={project.id}
+          projectName={project.name}
+          items={items}
+          today={todayISO()}
+        />
+      </Reveal>
+
+      <Reveal
+        index={2}
+        className="rounded-sheet bg-card p-4 shadow-sm sm:p-6"
+      >
+        <h2 className="mb-4 text-lg">History</h2>
+        <UpdateHistory projectId={project.id} latest={history.rows} total={history.total} />
+      </Reveal>
+    </div>
   )
 }

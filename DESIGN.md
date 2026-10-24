@@ -115,21 +115,16 @@ Constants live in `components/motion-bits.tsx` and the `--ease-out-expo` token.
 | Entrance | 0.5s, rise 12px and fade (`<Reveal index>`) | Page sections; stagger 0.06s per index. |
 | List stagger | 0.035s per item, capped at 8 items | Task cards. |
 | Exit | ≤ 0.2s fade and scale 0.97 | Removing items. |
-| Page change | leaving page 150ms fade + 6px lift, arriving page 250ms fade, ease-out-expo (`PageTransition`) | Every route change. |
+| Page change | none: the new page swaps in at once and its `<Reveal>`s rise | Every route change. |
 
 Rules: animate only `opacity`, `transform`, `width` (progress) and layout. Lists that change use
 `<AnimatePresence mode="popLayout">` + `layout`. Always respect reduced motion (`useReducedMotion`,
 as `CountUp` does). Never delay an action's result behind an animation.
 
-**Page transitions** are React `<ViewTransition>`s (CSS at the end of `globals.css`). Every `page.tsx` wraps its root in
-`PageTransition` and every `loading.tsx` in `PageTransition enter="none"` (skeletons fade themselves in after a beat, and a
-short transition lets fast pages land sooner); the workspace is `enter="none"` too, so its poster hands over in place. Only
-the page content moves: the root stays live, the search/account buttons and rail stay put (and fade with the page when a focus page hides
-or shows them), and the dock, toasts and Base UI popups are pinned above the fading page. One cross-fade everywhere, no
-directional slides: most moves here are lateral. Back/Forward swap instantly (React commits history moves synchronously).
-Reduced motion keeps the fades and drops the lift. Fixed chrome with hover popups calls `useHoldHoverInTransitions` (rail,
-dock): while a transition starts, the browser sends the hovered link a mouseleave, Base UI closes its tooltip with
-`flushSync`, and React skips the transition. A floating layer that isn't Base UI or Sonner needs adding to the pinned list.
+**No page transitions.** A route change swaps the page in at once; the page's own `<Reveal>`s give the entrance and a
+`loading.tsx` skeleton covers a slow server. Don't wrap pages in React `<ViewTransition>` or call `startViewTransition`: every
+navigation commits several times (skeleton, page, streamed parts), and each commit froze the whole screen into a snapshot that
+ignored clicks, so tabs, tasks and feedback felt like they glitched.
 
 **Pages render as a static shell plus streamed data** (Cache Components + Partial Prefetching). The
 layout's frame (rail, dock, tool shapes) and each area's `loading.tsx` are prefetched with every link,
@@ -208,7 +203,6 @@ Read-only pages (`/r/[token]`) have no dock and show a "Read-only" pill in the h
 | Progress | `ProgressBar` (animated) | `components/motion-bits.tsx` |
 | Animated number | `CountUp` | `components/motion-bits.tsx` |
 | Section entrance | `Reveal index={n}` | `components/motion-bits.tsx` |
-| Page enter / leave on navigation | `PageTransition` around a page's root (`enter="none"` in `loading.tsx`), see §2 Motion | `components/motion-bits.tsx` |
 | Image preview | `ImageGallery` wraps a page (task, feedback point, Give feedback): images in Markdown (`.rich img`, kept to `max-h-72` with `cursor-zoom-in`) and anything marked `data-zoom` open on click in a `rounded-tile` dialog (`sm:max-w-5xl`, image `max-h-[75dvh] object-contain`). With more than one image in the page: round prev / next buttons, `size-12 rounded-row` thumbnails (current = `ring-2 ring-foreground`), "2 / 5" from `sm`, ←/→ keys. Switching images doesn't animate | `components/image-gallery.tsx` |
 | Copy-to-clipboard | `CopyButton` | `components/share-link-card.tsx` |
 | Connect Google Calendar | `ConnectGoogle` (outline button) or `connectGoogle()` for a menu item; account menu shows "Google Calendar connected" as a label once linked, nothing when Google isn't configured | `components/connect-google.tsx` |
@@ -351,8 +345,8 @@ Say what happened or what to do next. No exclamation marks, no jargon ("activity
 - [ ] Reused an existing component or pattern from §4. Anything new is added to this file.
 - [ ] Only tokens: no `rounded-[…]`, no raw hex, semantic colour from `lib/labels.ts`.
 - [ ] Surfaces follow §3 (canvas → sheet → card).
-- [ ] Motion uses `spring` / `Reveal` / ease-out-expo, and lists animate add and remove. A new page (and its
-      `loading.tsx`) is wrapped in `PageTransition`.
+- [ ] Motion uses `spring` / `Reveal` / ease-out-expo, and lists animate add and remove. A new page gets a
+      `loading.tsx` skeleton, and no `<ViewTransition>`.
 - [ ] Works at 375px, in dark mode, with keyboard only and with reduced motion.
 - [ ] Submit buttons have `type="submit"`. Icon buttons have labels.
 - [ ] Checked in the browser (light, dark, phone width).

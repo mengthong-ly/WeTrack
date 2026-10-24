@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 import { type FeedbackTask, GiveFeedback } from "@/components/feedback"
-import { PageTransition, Reveal } from "@/components/motion-bits"
+import { Reveal } from "@/components/motion-bits"
 import { listMembers, listTasks } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
 
@@ -20,10 +20,8 @@ export default async function GiveFeedbackPage({ searchParams }: PageProps<"/fee
     .map((t) => ({ id: t.id, title: t.title, color: t.project.color, assigneeId: t.assignee?.id ?? null }))
 
   return (
-    <PageTransition>
-      <Reveal className="w-full">
-        <GiveFeedback key={linked} tasks={options} people={members} taskId={options.some((t) => t.id === linked) ? linked : undefined} />
-      </Reveal>
-    </PageTransition>
+    <Reveal className="w-full">
+      <GiveFeedback key={linked} tasks={options} people={members} taskId={options.some((t) => t.id === linked) ? linked : undefined} />
+    </Reveal>
   )
 }

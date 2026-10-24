@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 
 import { FeedbackDetail } from "@/components/feedback"
-import { PageTransition, Reveal } from "@/components/motion-bits"
+import { Reveal } from "@/components/motion-bits"
 import { plainText } from "@/lib/markdown"
 import { getFeedback } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
@@ -19,10 +19,8 @@ export default async function FeedbackPointPage({ params }: PageProps<"/feedback
   if (!item) notFound()
 
   return (
-    <PageTransition>
-      <Reveal className="w-full">
-        <FeedbackDetail item={item} />
-      </Reveal>
-    </PageTransition>
+    <Reveal className="w-full">
+      <FeedbackDetail item={item} />
+    </Reveal>
   )
 }

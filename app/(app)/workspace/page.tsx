@@ -1,6 +1,5 @@
 import type { Metadata } from "next"
 
-import { PageTransition } from "@/components/motion-bits"
 import { Workspace } from "@/components/workspace"
 import { needsAttention } from "@/lib/dashboard"
 import { activeShareLink, listArchivedProjects, listMembers, listProjects, listTasks, unreportedCounts } from "@/lib/queries"
@@ -26,34 +25,30 @@ export default async function WorkspacePage() {
   ])
 
   return (
-    // Fades out like any page when you leave, but doesn't fade in: the scene takes over from loading.tsx's
-    // poster in place, so the hand-off stays seamless.
-    <PageTransition enter="none">
-      <Workspace
-        scene={sceneData(projects, tasks, members, today, { full: true, workspace: { name: me.orgName, logo: me.orgLogo } })}
-        cards={tasks.map((t) => ({ ...toCard(t, today), projectId: t.projectId, assigneeId: t.assigneeId }))}
-        members={members.map(({ id, name, image }) => ({ id, name, image }))}
-        meId={me.user.id}
-        attention={needsAttention(tasks, today).map((a) => a.task.id)}
-        archived={archived.map(({ id, name, color }) => ({ id, name, color }))}
-        unreported={Object.fromEntries(unreported)}
-        share={
-          canShare
-            ? {
-                active: link
-                  ? {
-                      createdAt: link.createdAt.toLocaleDateString("en-GB", {
-                        day: "numeric",
-                        month: "short",
-                        timeZone: process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh",
-                      }),
-                      lastViewed: link.lastViewedAt && ago(link.lastViewedAt),
-                    }
-                  : null,
-              }
-            : null
-        }
-      />
-    </PageTransition>
+    <Workspace
+      scene={sceneData(projects, tasks, members, today, { full: true, workspace: { name: me.orgName, logo: me.orgLogo } })}
+      cards={tasks.map((t) => ({ ...toCard(t, today), projectId: t.projectId, assigneeId: t.assigneeId }))}
+      members={members.map(({ id, name, image }) => ({ id, name, image }))}
+      meId={me.user.id}
+      attention={needsAttention(tasks, today).map((a) => a.task.id)}
+      archived={archived.map(({ id, name, color }) => ({ id, name, color }))}
+      unreported={Object.fromEntries(unreported)}
+      share={
+        canShare
+          ? {
+              active: link
+                ? {
+                    createdAt: link.createdAt.toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      timeZone: process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh",
+                    }),
+                    lastViewed: link.lastViewedAt && ago(link.lastViewedAt),
+                  }
+                : null,
+            }
+          : null
+      }
+    />
   )
 }

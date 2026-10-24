@@ -4,11 +4,11 @@ import { PlusIcon } from "lucide-react"
 import { motion } from "motion/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Suspense, useRef } from "react"
+import { Suspense } from "react"
 
 import { NAV, SearchButton } from "@/components/app-dock"
 import { NEW_TASK_EVENT } from "@/components/command-menu"
-import { spring, useHoldHoverInTransitions } from "@/components/motion-bits"
+import { spring } from "@/components/motion-bits"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
@@ -16,10 +16,8 @@ import { cn } from "@/lib/utils"
 // with their names in tooltips, and the dark "+" for a new task under it. Phones use the dock.
 // The links are static, so the rail is in every prefetched shell. Search and `account` sit at its foot (no header).
 export function SideRail({ account }: { account?: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useHoldHoverInTransitions(ref)
   return (
-    <div ref={ref} data-app-sidebar className="fixed top-1/2 left-4 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
+    <div data-app-sidebar className="fixed top-1/2 left-4 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
       {/* The path is unknown while a dynamic route prerenders; the links show with no active pill until it streams in. */}
       <Suspense fallback={<Links pathname={null} />}>
         <CurrentLinks />
