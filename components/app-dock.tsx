@@ -68,10 +68,12 @@ function Dock({ pathname, account }: { pathname: string | null; account?: React.
   useHoldHoverInTransitions(ref)
   return (
     <div ref={ref} data-app-dock className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-      <div className="pointer-events-auto flex items-end gap-3">
+      {/* Only the nav and the button column take clicks: the box around them (as tall as the column) would
+          otherwise cover whatever sits above the nav, like the workspace's scene controls. */}
+      <div className="flex items-end gap-3">
         <nav
           aria-label="Main"
-          className="flex items-center gap-0.5 rounded-full bg-card/85 p-1.5 sm:gap-1 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl"
+          className="pointer-events-auto flex items-center gap-0.5 rounded-full bg-card/85 p-1.5 sm:gap-1 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl"
         >
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : !!pathname?.startsWith(href)
@@ -109,7 +111,7 @@ function Dock({ pathname, account }: { pathname: string | null; account?: React.
             )
           })}
         </nav>
-        <div className="flex flex-col items-center gap-2">
+        <div className="pointer-events-auto flex flex-col items-center gap-2">
           {/* Search and account step aside on focus pages, like the rail; the "+" stays. */}
           <div data-app-header className="flex flex-col items-center gap-2">
             <SearchButton side="left" />

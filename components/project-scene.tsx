@@ -225,23 +225,8 @@ export function ProjectScene({
 
       {state === "ready" && (
         <>
-          <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2 sm:inset-x-4 sm:top-4">
-            <PillTabs
-              id="scene-mode"
-              className="max-w-full"
-              items={MODES.map((m) => ({ key: m.key, label: m.label, active: mode === m.key, onSelect: () => pickMode(m.key) }))}
-            />
-            {toolbar ?? (
-              <p className={cn("hidden h-11 items-center gap-2 rounded-full px-4 text-xs text-muted-foreground sm:flex", glass)}>
-                <span className={cn("size-1.5 rounded-full", playing ? "bg-orange-500" : "bg-muted-foreground")} />
-                {playing ? "Live" : "Paused"}
-                <span className="tabular">{open} open</span>
-              </p>
-            )}
-          </div>
-
           {selected ? (
-            <div className={cn("absolute top-16 left-3 w-64 max-w-[calc(100%-1.5rem)] rounded-panel p-4 shadow-lg sm:left-4", glass)}>
+            <div className={cn("absolute top-3 left-3 w-64 max-w-[calc(100%-1.5rem)] rounded-panel p-4 shadow-lg sm:left-4", glass)}>
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm leading-snug">{selected.title}</p>
                 <button
@@ -264,7 +249,7 @@ export function ProjectScene({
             mode === "flow" &&
             following &&
             !calm && (
-              <div className={cn("absolute top-16 left-3 w-64 max-w-[calc(100%-1.5rem)] rounded-panel p-4 shadow-lg sm:left-4", glass)}>
+              <div className={cn("absolute top-3 left-3 w-64 max-w-[calc(100%-1.5rem)] rounded-panel p-4 shadow-lg sm:left-4", glass)}>
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
                   <RouteIcon className="size-3.5" /> Following one task
                 </p>
@@ -281,10 +266,16 @@ export function ProjectScene({
 
           <div
             className={cn(
-              "absolute inset-x-3 flex items-center justify-center gap-2",
+              "absolute inset-x-3 flex flex-wrap items-center justify-center gap-2",
               chrome === "page" ? "bottom-24 sm:bottom-28" : "bottom-3 sm:bottom-4"
             )}
           >
+            {/* Phones: the views take their own row above the camera buttons. */}
+            <PillTabs
+              id="scene-mode"
+              className="max-sm:basis-full max-sm:justify-center max-sm:bg-transparent max-sm:ring-0 max-sm:backdrop-blur-none"
+              items={MODES.map((m) => ({ key: m.key, label: m.label, active: mode === m.key, onSelect: () => pickMode(m.key) }))}
+            />
             <button
               type="button"
               onClick={() => {
@@ -322,10 +313,17 @@ export function ProjectScene({
             >
               {playing ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4" />}
             </button>
+            {toolbar ?? (
+              <p className={cn("hidden h-11 items-center gap-2 rounded-full px-4 text-xs text-muted-foreground sm:flex", glass)}>
+                <span className={cn("size-1.5 rounded-full", playing ? "bg-orange-500" : "bg-muted-foreground")} />
+                {playing ? "Live" : "Paused"}
+                <span className="tabular">{open} open</span>
+              </p>
+            )}
           </div>
           {/* The workspace explains its gestures in the legend instead. */}
           {chrome === "inline" && (
-            <p className="pointer-events-none absolute right-4 bottom-20 hidden text-xs text-muted-foreground lg:block">
+            <p className="pointer-events-none absolute top-4 right-4 hidden text-xs text-muted-foreground lg:block">
               Drag to move. Shift-drag to turn. Scroll to zoom.
             </p>
           )}

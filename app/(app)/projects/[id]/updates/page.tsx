@@ -6,8 +6,7 @@ import { notFound } from "next/navigation"
 import { ProjectDot } from "@/components/bits"
 import { ClientUpdateComposer, UpdateHistory } from "@/components/client-update-composer"
 import { PageTransition, Reveal } from "@/components/motion-bits"
-import { groupUpdates } from "@/lib/client-update"
-import { clientUpdates, getProject, unreportedActivity } from "@/lib/queries"
+import { loadClientUpdates } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 
@@ -18,27 +17,9 @@ export default async function ClientUpdatesPage({
 }: PageProps<"/projects/[id]/updates">) {
   const me = await requireMember()
   const { id } = await params
-  const project = await getProject(me.orgId, id)
-  if (!project) notFound()
-  const [events, history] = await Promise.all([
-    unreportedActivity(me.orgId, id),
-    clientUpdates(me.orgId, id),
-  ])
-
-  const items = groupUpdates(
-    events.map((e) => ({
-      id: e.id,
-      kind: e.kind,
-      taskId: e.taskId,
-      createdAt: e.createdAt.toISOString(),
-    })),
-    events.map((e) => ({
-      id: e.taskId!,
-      title: e.title,
-      status: e.status,
-      deadline: e.deadline,
-    }))
-  )
+  const data = await loadClientUpdates(me.orgId, id)
+  if (!data) notFound()
+  const { project, items, history } = data
 
   return (
     <PageTransition>

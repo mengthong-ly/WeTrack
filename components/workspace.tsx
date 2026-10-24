@@ -1,22 +1,27 @@
 "use client"
 
 import {
+  ArchiveIcon,
   ArchiveRestoreIcon,
   BoxIcon,
   CircleHelpIcon,
+  ImageIcon,
   ImageOffIcon,
   ImagePlusIcon,
+  Link2Icon,
   MessageSquareTextIcon,
   MoreHorizontalIcon,
   PanelLeftIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
-  Trash2Icon,
+  UserIcon,
+  UsersIcon,
   XIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react"
+import { usePathname, useRouter } from "next/navigation"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { archiveProject, restoreProject, setProjectLogo, updateProject, updateTask } from "@/app/actions"
@@ -27,6 +32,7 @@ import { NewProject } from "@/components/new-project"
 import { PillTabs } from "@/components/pill-tabs"
 import { ProjectScene, type SceneMove, type ScenePick } from "@/components/project-scene"
 import { ShareLinkCard } from "@/components/share-link-card"
+import { Layer, LayerBody, LayerHead, Row, Rows } from "@/components/workspace-drawer"
 import { TaskList, type TaskCardData } from "@/components/task-card"
 import {
   DropdownMenu,
@@ -37,7 +43,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import type { TaskStatus } from "@/lib/db/enums"
 import { imageForm, shrink } from "@/lib/image"
 import { HEALTH, PROJECT_COLORS, PROJECT_HEALTH, STATUS } from "@/lib/labels"
@@ -47,8 +52,9 @@ import { cn, isTyping } from "@/lib/utils"
 
 /**
  * The 3D workspace: the scene fills the screen and is where work is managed.
- * Click the core, a project, a status station or a person for a side panel (edit, add, archive);
- * click a task block for the full task in a sheet (the @panel route). Drag a block onto another
+ * Click the core, a project, a status station or a person for its drawer; edits, logo, people, archive
+ * and the rest open as drawers nested on top. A task block (or a task in any drawer) opens the full
+ * task in a drawer of its own (the @panel route), stacked over whatever is open. Drag a block onto another
  * status, or unassigned work onto a person. A "+" on any label starts a task there.
  */
 
@@ -62,8 +68,6 @@ const STATUS_ORDER = ["not_started", "in_progress", "review", "blocked", "comple
 const round =
   "relative grid size-11 shrink-0 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition-[background-color,scale] hover:bg-card active:scale-95"
 
-const sheet =
-  "gap-0 bg-card p-0 data-[side=right]:w-full data-[side=right]:border-l-0 sm:rounded-l-tile data-[side=right]:sm:max-w-md"
 const pill =
   "inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm transition-[background-color,color,scale] active:scale-95"
 const empty = "rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground"
@@ -91,8 +95,10 @@ export function Workspace({
   archived: Archived
 }) {
   const router = useRouter()
+  // A routed drawer (task, New task, Client updates) is open over the workspace.
+  const routed = usePathname() !== "/workspace"
   const [, start] = useTransition()
-  // `panel` outlives `open`, so the sheet keeps its content while it slides out.
+  // `panel` outlives `open`, so the drawer keeps its content while it slides out.
   const [panel, setPanel] = useState<ScenePick | null>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -143,10 +149,8 @@ export function Workspace({
     },
     [cards, members, router]
   )
-  const onAdd = useCallback((preset: NewTaskPreset) => {
-    setOpen(false)
-    newTask(preset)
-  }, [])
+  // New task opens over the drawer it came from (the @panel route), so the drawer stays.
+  const onAdd = useCallback((preset: NewTaskPreset) => newTask(preset), [])
   const close = () => setOpen(false)
 
   // "/" jumps to the search, as on the Tasks page.
@@ -247,8 +251,7 @@ export function Workspace({
         />
       </div>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className={sheet}>
+      <Layer open={open} onOpenChange={setOpen} behind={open && routed}>
           {panel?.kind === "workspace" && (
             <WorkspacePanel scene={scene} share={share} archived={archived} onNewTask={() => onAdd({})} />
           )}
@@ -268,7 +271,6 @@ export function Workspace({
               count={scene.counts[panel.id as TaskStatus]}
               cards={cards.filter((c) => c.status === panel.id)}
               onNewTask={() => onAdd({ status: panel.id as TaskStatus })}
-              onClose={close}
             />
           )}
           {member && (
@@ -277,11 +279,9 @@ export function Workspace({
               user={members.find((m) => m.id === member.id)}
               cards={cards.filter((c) => c.assigneeId === member.id && c.status !== "completed")}
               onNewTask={() => onAdd({ assigneeId: member.id })}
-              onClose={close}
             />
           )}
-        </SheetContent>
-      </Sheet>
+      </Layer>
     </>
   )
 }
@@ -322,7 +322,7 @@ function Outline({
     <nav
       aria-label="Outline"
       className={cn(
-        "absolute top-16 bottom-40 left-3 z-10 flex w-[calc(100%-1.5rem)] flex-col rounded-panel bg-card/90 shadow-lg ring-1 ring-foreground/5 backdrop-blur sm:top-[4.5rem] sm:bottom-44 sm:left-4 sm:w-72",
+        "absolute top-3 bottom-56 left-3 z-10 flex w-[calc(100%-1.5rem)] flex-col rounded-panel bg-card/90 shadow-lg ring-1 ring-foreground/5 backdrop-blur sm:top-4 sm:bottom-44 sm:left-4 sm:w-72",
         className
       )}
     >
@@ -488,7 +488,7 @@ function Legend() {
       <PopoverTrigger aria-label="How the workspace works" className={round}>
         <CircleHelpIcon className="size-5" />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 gap-4 rounded-panel p-5">
+      <PopoverContent side="top" align="end" sideOffset={8} className="w-80 gap-4 rounded-panel p-5">
         <PopoverTitle className="text-base font-normal">How the workspace works</PopoverTitle>
         <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1.5 text-sm">
           <dt>Hub</dt>
@@ -541,38 +541,25 @@ function Legend() {
   )
 }
 
-// A task opened from the scene: the full task (TaskDetail) in a wide sheet. Closing goes back.
-// The sheet opens at once; its children stream in and bring their own (sr-only) SheetTitle.
-export function TaskSheet({ children }: { children: React.ReactNode }) {
-  const router = useRouter()
-  const [open, setOpen] = useState(true)
-  // Next keeps a closed sheet's page alive (hidden): reset it as it hides, so coming back to the
-  // same task opens it again.
-  useLayoutEffect(() => () => setOpen(true), [])
-  return (
-    <Sheet open={open} onOpenChange={setOpen} onOpenChangeComplete={(o) => !o && router.back()}>
-      <SheetContent showCloseButton={false} className={cn(sheet, "data-[side=right]:sm:max-w-xl")}>
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
-      </SheetContent>
-    </Sheet>
-  )
-}
-
 function NewTaskButton({ onClick, children = "New task" }: { onClick: () => void; children?: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className={cn(pill, "bg-foreground text-background")}>
+    <button type="button" onClick={onClick} className={cn(pill, "self-start bg-foreground text-background")}>
       <PlusIcon className="size-4" />
       {children}
     </button>
   )
 }
 
-// Opening a task from a list closes the panel; the task's own sheet takes over.
-function Tasks({ cards, onClose, none }: { cards: WorkspaceCard[]; onClose: () => void; none: string }) {
+// A task in any drawer opens on top of it (the @panel route), so the drawer stays put behind.
+function Tasks({ title, cards, none }: { title: string; cards: WorkspaceCard[]; none: string }) {
   return (
-    <div className="flex-1 overflow-y-auto px-3 pb-6 sm:px-4" onClickCapture={(e) => (e.target as HTMLElement).closest("a") && onClose()}>
+    <section>
+      <h2 className="mb-3 flex items-baseline gap-2 text-lg">
+        {title}
+        <span className="tabular text-sm text-muted-foreground">{cards.length}</span>
+      </h2>
       <TaskList tasks={cards} empty={<p className={empty}>{none}</p>} />
-    </div>
+    </section>
   )
 }
 
@@ -587,17 +574,18 @@ function WorkspacePanel({
   archived: Archived
   onNewTask: () => void
 }) {
-  const [, start] = useTransition()
   const open = Object.values(scene.counts).reduce((a, b) => a + b, 0) - scene.counts.completed
   return (
     <>
-      <SheetHeader className="px-6 pt-6 pb-4">
-        <SheetTitle className="pr-8 text-2xl font-light tracking-tight">Workspace</SheetTitle>
-        <SheetDescription className="tabular">
-          {scene.projects.length} projects · {open} open · {scene.members.length} people
-        </SheetDescription>
-      </SheetHeader>
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
+      <LayerHead
+        title="Workspace"
+        description={
+          <span className="tabular">
+            {scene.projects.length} projects · {open} open · {scene.members.length} people
+          </span>
+        }
+      />
+      <LayerBody className="flex flex-col gap-6">
         <div className="flex flex-wrap gap-2">
           <NewTaskButton onClick={onNewTask} />
           <NewProject variant="button" />
@@ -605,45 +593,74 @@ function WorkspacePanel({
             All tasks
           </Link>
         </div>
-        {share && (
-          <section>
-            <h2 className="mb-2 text-lg">CEO link</h2>
-            <ShareLinkCard active={share.active} />
-          </section>
-        )}
-        {archived.length > 0 && (
-          <section>
-            <h2 className="mb-1 text-lg">Archived projects</h2>
-            <p className="mb-3 text-sm text-muted-foreground">Out of every list, tasks and all. Restore one to bring it back.</p>
-            <ul className="flex flex-col gap-2">
-              {archived.map((p) => (
-                <li key={p.id} className="flex h-12 items-center gap-2.5 rounded-row bg-muted/60 pr-2 pl-4 text-sm">
-                  <ProjectDot color={p.color} />
-                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      start(async () => {
-                        const res = await restoreProject(p.id)
-                        if (res.error) toast.error(res.error)
-                        else toast.success(`${p.name} restored`)
-                      })
-                    }
-                    className={cn(pill, "h-8 bg-card px-3 text-xs hover:bg-foreground hover:text-background")}
-                  >
-                    <ArchiveRestoreIcon className="size-3.5" />
-                    Restore
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-      </div>
+        <Rows>
+          {share && (
+            <Layer trigger={<Row icon={Link2Icon} meta={share.active ? "On" : "Off"}>CEO link</Row>}>
+              <LayerHead title="CEO link" />
+              <LayerBody>
+                <ShareLinkCard active={share.active} />
+              </LayerBody>
+            </Layer>
+          )}
+          <Layer trigger={<Row icon={ArchiveIcon} meta={<span className="tabular">{archived.length || "None"}</span>}>Archived projects</Row>}>
+            <ArchivedProjects archived={archived} />
+          </Layer>
+        </Rows>
+      </LayerBody>
     </>
   )
 }
 
+function ArchivedProjects({ archived }: { archived: Archived }) {
+  const [, start] = useTransition()
+  return (
+    <>
+      <LayerHead title="Archived projects" description="Out of every list, tasks and all. Restore one to bring it back." />
+      <LayerBody>
+        {archived.length === 0 ? (
+          <p className={empty}>Nothing archived. Archive a project from its ⋯ menu.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {archived.map((p) => (
+              <li key={p.id} className="flex h-12 items-center gap-2.5 rounded-row bg-muted/60 pr-2 pl-4 text-sm">
+                <ProjectDot color={p.color} />
+                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    start(async () => {
+                      const res = await restoreProject(p.id)
+                      if (res.error) toast.error(res.error)
+                      else toast.success(`${p.name} restored`)
+                    })
+                  }
+                  className={cn(pill, "h-8 bg-card px-3 text-xs hover:bg-foreground hover:text-background")}
+                >
+                  <ArchiveRestoreIcon className="size-3.5" />
+                  Restore
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </LayerBody>
+    </>
+  )
+}
+
+// The project's mark in a drawer header: its logo, or its colour dot on a grey disc.
+function Mark({ color, logo, className }: { color: string; logo: string | null; className?: string }) {
+  return logo ? (
+    // eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it
+    <img src={logo} alt="" className={cn("size-11 shrink-0 rounded-full bg-card object-contain ring-1 ring-foreground/5", className)} />
+  ) : (
+    <span className={cn("grid size-11 shrink-0 place-items-center rounded-full bg-muted", className)}>
+      <ProjectDot color={color} className="size-3" />
+    </span>
+  )
+}
+
+// A project at a glance; everything that changes it opens in a drawer on top.
 function ProjectPanel({
   project,
   cards,
@@ -657,13 +674,8 @@ function ProjectPanel({
   onNewTask: () => void
   onClose: () => void
 }) {
-  const [, start] = useTransition()
-  const [color, setColor] = useState(project.color)
-  const save = (patch: { name?: string; color?: string }) =>
-    start(async () => {
-      const res = await updateProject(project.id, patch)
-      if (res.error) toast.error(res.error)
-    })
+  const router = useRouter()
+  const [archiving, setArchiving] = useState(false)
   // The logo shows at once (a blob: URL) while it uploads; a failure puts the old one back.
   const [logo, setLogo] = useState(project.logo)
   const [uploading, startUpload] = useTransition()
@@ -677,92 +689,58 @@ function ProjectPanel({
         setLogo(project.logo)
       }
     })
+  const people = useMemo(() => {
+    const by = new Map<string, Person>()
+    let unassigned = 0
+    for (const c of cards) {
+      if (!c.assigneeId || !c.assignee) {
+        unassigned++
+        continue
+      }
+      const p = by.get(c.assigneeId) ?? { id: c.assigneeId, user: c.assignee, open: 0, active: 0, overdue: 0 }
+      p.open++
+      if (c.status === "in_progress") p.active++
+      if (c.health === "overdue") p.overdue++
+      by.set(c.assigneeId, p)
+    }
+    return { list: [...by.values()].sort((a, b) => b.open - a.open), unassigned }
+  }, [cards])
 
   return (
     <>
-      <SheetHeader className="px-6 pt-6 pb-4">
-        <SheetTitle className="sr-only">{project.name}</SheetTitle>
-        <div className="flex items-center gap-3 pr-8">
-          <label
-            aria-label={logo ? "Replace logo" : "Add logo"}
-            className={cn(
-              "grid size-11 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full bg-muted text-muted-foreground transition-[background-color,scale,opacity] hover:bg-muted/70 hover:text-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50 active:scale-95",
-              uploading && "pointer-events-none opacity-60"
-            )}
-          >
-            {logo ? (
-              // eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it
-              <img src={logo} alt="" className="size-full bg-card object-contain" />
-            ) : (
-              <ImagePlusIcon className="size-4" />
-            )}
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              className="sr-only"
-              onChange={(e) => {
-                const file = e.currentTarget.files?.[0]
-                e.currentTarget.value = ""
-                if (file) saveLogo(file)
-              }}
-            />
-          </label>
-          {/* Edit in place: saves on blur or Enter. */}
-          <form
-            className="min-w-0 flex-1"
-            action={(form) => {
-              const name = String(form.get("name") ?? "").trim()
-              if (name && name !== project.name) save({ name })
-            }}
-          >
-            <Input
-              name="name"
-              defaultValue={project.name}
-              aria-label="Project name"
-              maxLength={60}
-              onBlur={(e) => e.currentTarget.form?.requestSubmit()}
-              className="-mx-2 h-11 rounded-row border-0 bg-transparent px-2 text-2xl font-light tracking-tight shadow-none hover:bg-muted/60 md:text-2xl dark:bg-transparent"
-            />
-          </form>
-        </div>
-        <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <HealthBadge health={project.health} />
-          <span className="tabular">{project.open} open</span>
-          <span className="tabular">{project.total - project.open} done</span>
-          {project.overdue > 0 && <span className={cn("tabular", HEALTH.overdue.className)}>{project.overdue} overdue</span>}
-        </SheetDescription>
-      </SheetHeader>
-
-      <div className="flex flex-col gap-5 px-6 pb-5">
+      <LayerHead
+        mark={<Mark color={project.color} logo={logo} />}
+        title={project.name}
+        description={
+          <>
+            <HealthBadge health={project.health} />
+            <span className="tabular">{project.open} open</span>
+            <span className="tabular">{project.total - project.open} done</span>
+            {project.overdue > 0 && <span className={cn("tabular", HEALTH.overdue.className)}>{project.overdue} overdue</span>}
+          </>
+        }
+      />
+      <LayerBody className="flex flex-col gap-6">
         <div>
           <span className="text-5xl font-light tracking-tight">
             <CountUp value={project.progress} suffix="%" />
           </span>
           <ProgressBar value={project.progress} className="mt-3" />
         </div>
-        <fieldset className="flex flex-wrap gap-2">
-          <legend className="sr-only">Colour</legend>
-          {PROJECT_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={`Colour ${c}`}
-              aria-pressed={c === color}
-              onClick={() => {
-                setColor(c)
-                save({ color: c })
-              }}
-              className={cn("size-7 rounded-full ring-offset-2 ring-offset-card transition-[scale] active:scale-90", c === color && "ring-2 ring-foreground")}
-              style={{ background: c }}
-            />
-          ))}
-        </fieldset>
         <div className="flex flex-wrap items-center gap-2">
           <NewTaskButton onClick={onNewTask} />
-          <Link href={`/projects/${project.id}/updates`} className={cn(pill, "bg-muted hover:bg-foreground hover:text-background")}>
-            <MessageSquareTextIcon className="size-4" />
-            {unreported ? `${unreported} to tell the client` : "Client updates"}
-          </Link>
+          <EditProject
+            project={project}
+            logo={logo}
+            uploading={uploading}
+            onLogo={saveLogo}
+            trigger={
+              <button type="button" className={cn(pill, "bg-muted hover:bg-foreground hover:text-background")}>
+                <PencilIcon className="size-4" />
+                Edit
+              </button>
+            }
+          />
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label="More actions"
@@ -772,33 +750,266 @@ function ProjectPanel({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuGroup>
-                {logo && (
-                  <DropdownMenuItem onClick={() => saveLogo(null)}>
-                    <ImageOffIcon />
-                    Remove logo
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={async () => {
-                    if (!confirm(`Archive “${project.name}”? It and its tasks leave every list until you restore it from the workspace panel.`)) return
-                    const res = await archiveProject(project.id)
-                    if (res.error) return toast.error(res.error)
-                    toast.success("Project archived")
-                    onClose()
-                  }}
-                >
-                  <Trash2Icon />
+                <DropdownMenuItem variant="destructive" onClick={() => setArchiving(true)}>
+                  <ArchiveIcon />
                   Archive project
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
-      <h2 className="px-6 pb-3 text-lg">Open tasks</h2>
-      <Tasks cards={cards} onClose={onClose} none="Nothing open here. Press + to add a task." />
+        <Rows>
+          <Layer
+            trigger={
+              <Row
+                icon={UsersIcon}
+                meta={
+                  people.list.length > 0 ? (
+                    <span className="flex">
+                      {people.list.slice(0, 3).map((p) => (
+                        <UserAvatar key={p.id} user={p.user} className="-ml-1.5 size-6 ring-2 ring-muted first:ml-0" />
+                      ))}
+                    </span>
+                  ) : (
+                    "Nobody yet"
+                  )
+                }
+              >
+                People
+              </Row>
+            }
+          >
+            <ProjectPeople name={project.name} people={people.list} unassigned={people.unassigned} />
+          </Layer>
+          <Row
+            icon={MessageSquareTextIcon}
+            meta={unreported > 0 && <span className="tabular">{unreported} to tell</span>}
+            onClick={() => router.push(`/projects/${project.id}/updates`, { scroll: false })}
+          >
+            Client updates
+          </Row>
+        </Rows>
+        <Tasks title="Open tasks" cards={cards} none="Nothing open here. Press New task to add one." />
+      </LayerBody>
+      <ArchiveProject project={project} open={archiving} onOpenChange={setArchiving} onArchived={onClose} />
     </>
+  )
+}
+
+type Person = { id: string; user: { name: string; image: string | null }; open: number; active: number; overdue: number }
+
+function ProjectPeople({ name, people, unassigned }: { name: string; people: Person[]; unassigned: number }) {
+  return (
+    <>
+      <LayerHead title="People" description={`Who has open work on ${name}`} />
+      <LayerBody>
+        {people.length === 0 && unassigned === 0 ? (
+          <p className={empty}>Nobody has open work here yet. Assign a task to see them.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {people.map((p) => (
+              <li key={p.id} className="flex h-14 items-center gap-3 rounded-row bg-muted/60 px-3 text-sm">
+                <UserAvatar user={p.user} className="size-8" />
+                <span className="min-w-0 flex-1 truncate">{p.user.name}</span>
+                <span className="tabular flex shrink-0 gap-2 text-xs text-muted-foreground">
+                  <span>{p.open} open</span>
+                  {p.active > 0 && <span className={STATUS.in_progress.className}>{p.active} in progress</span>}
+                  {p.overdue > 0 && <span className={HEALTH.overdue.className}>{p.overdue} overdue</span>}
+                </span>
+              </li>
+            ))}
+            {unassigned > 0 && (
+              <li className="flex h-14 items-center gap-3 rounded-row px-3 text-sm text-muted-foreground">
+                <span className="grid size-8 place-items-center rounded-full border-[1.5px] border-dashed border-foreground/20">
+                  <UserIcon className="size-3.5" />
+                </span>
+                <span className="flex-1">Unassigned</span>
+                <span className="tabular text-xs">{unassigned} open</span>
+              </li>
+            )}
+          </ul>
+        )}
+      </LayerBody>
+    </>
+  )
+}
+
+// Name and colour, saved together; the logo has its own drawer on top.
+function EditProject({
+  project,
+  logo,
+  uploading,
+  onLogo,
+  trigger,
+}: {
+  project: SceneProject
+  logo: string | null
+  uploading: boolean
+  onLogo: (file: File | null) => void
+  trigger: React.ReactElement
+}) {
+  const [open, setOpen] = useState(false)
+  const [color, setColor] = useState(project.color)
+  const [error, setError] = useState<string>()
+  const [pending, start] = useTransition()
+  return (
+    <Layer trigger={trigger} open={open} onOpenChange={setOpen}>
+      <LayerHead title="Edit project" />
+      <LayerBody>
+        <form
+          className="flex flex-col gap-6"
+          action={(form) =>
+            start(async () => {
+              const name = String(form.get("name") ?? "").trim()
+              const res = await updateProject(project.id, { name, color })
+              if (res.error) return setError(res.error)
+              setError(undefined)
+              setOpen(false)
+            })
+          }
+        >
+          <label className="flex flex-col gap-2">
+            <span className="text-sm text-muted-foreground">Name</span>
+            <Input name="name" defaultValue={project.name} required maxLength={60} className="h-12 rounded-full bg-muted/60 px-4 text-base" />
+          </label>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-sm text-muted-foreground">Colour</legend>
+            <div className="flex flex-wrap gap-2">
+              {PROJECT_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Colour ${c}`}
+                  aria-pressed={c === color}
+                  onClick={() => setColor(c)}
+                  className={cn("size-8 rounded-full ring-offset-2 ring-offset-card transition-[scale] active:scale-90", c === color && "ring-2 ring-foreground")}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+          </fieldset>
+          <Rows>
+            <Layer
+              trigger={
+                <Row icon={ImageIcon} meta={logo ? <Mark color={color} logo={logo} className="size-7" /> : "None"}>
+                  Logo
+                </Row>
+              }
+            >
+              <ProjectLogo color={color} logo={logo} uploading={uploading} onLogo={onLogo} />
+            </Layer>
+          </Rows>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <button type="submit" disabled={pending} className={cn(pill, "self-start bg-foreground px-5 text-background disabled:opacity-60")}>
+            {pending ? "Saving" : "Save"}
+          </button>
+        </form>
+      </LayerBody>
+    </Layer>
+  )
+}
+
+function ProjectLogo({
+  color,
+  logo,
+  uploading,
+  onLogo,
+}: {
+  color: string
+  logo: string | null
+  uploading: boolean
+  onLogo: (file: File | null) => void
+}) {
+  return (
+    <>
+      <LayerHead title="Logo" description="Shown on the project's token and card instead of its dot." />
+      <LayerBody className="flex flex-col items-center gap-6 pt-4">
+        <Mark color={color} logo={logo} className={cn("size-32 transition-opacity", uploading && "opacity-60")} />
+        <div className="flex flex-wrap justify-center gap-2">
+          <label
+            className={cn(
+              pill,
+              "cursor-pointer bg-foreground text-background has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+              uploading && "pointer-events-none opacity-60"
+            )}
+          >
+            <ImagePlusIcon className="size-4" />
+            {logo ? "Replace image" : "Upload image"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0]
+                e.currentTarget.value = ""
+                if (file) onLogo(file)
+              }}
+            />
+          </label>
+          {logo && (
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => onLogo(null)}
+              className={cn(pill, "bg-muted hover:bg-muted/70 disabled:opacity-60")}
+            >
+              <ImageOffIcon className="size-4" />
+              Remove
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">PNG, JPG, WebP or GIF. Square images look best.</p>
+      </LayerBody>
+    </>
+  )
+}
+
+function ArchiveProject({
+  project,
+  open,
+  onOpenChange,
+  onArchived,
+}: {
+  project: SceneProject
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onArchived: () => void
+}) {
+  const [pending, start] = useTransition()
+  return (
+    <Layer open={open} onOpenChange={onOpenChange}>
+      <LayerHead title={`Archive ${project.name}?`} />
+      <LayerBody className="flex flex-col gap-6">
+        <p className="text-sm text-muted-foreground">
+          It and its tasks leave every list. You can restore it any time from Archived projects in the workspace drawer.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                const res = await archiveProject(project.id)
+                if (res.error) return void toast.error(res.error)
+                toast.success("Project archived")
+                onArchived()
+              })
+            }
+            className={cn(pill, "bg-muted px-5 text-destructive hover:bg-muted/70 disabled:opacity-60")}
+          >
+            <ArchiveIcon className="size-4" />
+            {pending ? "Archiving" : "Archive project"}
+          </button>
+          <button type="button" onClick={() => onOpenChange(false)} className={cn(pill, "hover:bg-muted")}>
+            Cancel
+          </button>
+        </div>
+      </LayerBody>
+    </Layer>
   )
 }
 
@@ -807,24 +1018,23 @@ function StatusPanel({
   count,
   cards,
   onNewTask,
-  onClose,
 }: {
   status: TaskStatus
   count: number
   cards: WorkspaceCard[]
   onNewTask: () => void
-  onClose: () => void
 }) {
   return (
     <>
-      <SheetHeader className="px-6 pt-6 pb-4">
-        <SheetTitle className={cn("pr-8 text-2xl font-light tracking-tight", STATUS[status].className)}>{STATUS[status].label}</SheetTitle>
-        <SheetDescription className="tabular">{count} tasks. Drag a block onto another station to move it.</SheetDescription>
-      </SheetHeader>
-      <div className="px-6 pb-5">
+      <LayerHead
+        title={STATUS[status].label}
+        titleClassName={STATUS[status].className}
+        description={<span className="tabular">{count} tasks. Drag a block onto another station to move it.</span>}
+      />
+      <LayerBody className="flex flex-col gap-6">
         <NewTaskButton onClick={onNewTask} />
-      </div>
-      <Tasks cards={cards} onClose={onClose} none="Nothing here right now." />
+        <Tasks title="Tasks" cards={cards} none="Nothing here right now." />
+      </LayerBody>
     </>
   )
 }
@@ -834,32 +1044,30 @@ function MemberPanel({
   user,
   cards,
   onNewTask,
-  onClose,
 }: {
   member: SceneMember
   user?: MemberLite
   cards: WorkspaceCard[]
   onNewTask: () => void
-  onClose: () => void
 }) {
   const first = member.name.split(" ")[0]
   return (
     <>
-      <SheetHeader className="px-6 pt-6 pb-4">
-        <div className="flex items-center gap-3 pr-8">
-          <UserAvatar user={user ?? { name: member.name, image: null }} className="size-10" />
-          <SheetTitle className="min-w-0 truncate text-2xl font-light tracking-tight">{member.name}</SheetTitle>
-        </div>
-        <SheetDescription className="flex flex-wrap gap-x-3">
-          <span className="tabular">{member.open} open</span>
-          <span className={cn("tabular", member.active && STATUS.in_progress.className)}>{member.active} in progress</span>
-          {member.overdue > 0 && <span className={cn("tabular", HEALTH.overdue.className)}>{member.overdue} overdue</span>}
-        </SheetDescription>
-      </SheetHeader>
-      <div className="px-6 pb-5">
+      <LayerHead
+        mark={<UserAvatar user={user ?? { name: member.name, image: null }} className="size-11" />}
+        title={member.name}
+        description={
+          <>
+            <span className="tabular">{member.open} open</span>
+            <span className={cn("tabular", member.active && STATUS.in_progress.className)}>{member.active} in progress</span>
+            {member.overdue > 0 && <span className={cn("tabular", HEALTH.overdue.className)}>{member.overdue} overdue</span>}
+          </>
+        }
+      />
+      <LayerBody className="flex flex-col gap-6">
         <NewTaskButton onClick={onNewTask}>New task for {first}</NewTaskButton>
-      </div>
-      <Tasks cards={cards} onClose={onClose} none={`${first} has nothing open. Drag unassigned work onto their station.`} />
+        <Tasks title="Open tasks" cards={cards} none={`${first} has nothing open. Drag unassigned work onto their station.`} />
+      </LayerBody>
     </>
   )
 }

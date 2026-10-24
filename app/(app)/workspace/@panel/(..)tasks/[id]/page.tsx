@@ -3,26 +3,28 @@ import { Suspense } from "react"
 
 import { DetailSkeleton } from "@/components/page-skeleton"
 import { TaskDetail } from "@/components/task-detail"
-import { SheetTitle } from "@/components/ui/sheet"
-import { TaskSheet } from "@/components/workspace"
+import { DrawerTitle } from "@/components/ui/drawer"
+import { LayerBody, RouteDrawer } from "@/components/workspace-drawer"
 import { requireMember } from "@/lib/session"
 import { loadTaskDetail } from "@/lib/task-detail"
 
 // The sheet slides in on the click; the task streams into it.
 export default function TaskPanel({ params }: PageProps<"/tasks/[id]">) {
   return (
-    <TaskSheet>
-      <Suspense
-        fallback={
-          <>
-            <SheetTitle className="sr-only">Loading task</SheetTitle>
-            <DetailSkeleton />
-          </>
-        }
-      >
-        <Panel params={params} />
-      </Suspense>
-    </TaskSheet>
+    <RouteDrawer>
+      <LayerBody className="p-4 sm:p-6">
+        <Suspense
+          fallback={
+            <>
+              <DrawerTitle className="sr-only">Loading task</DrawerTitle>
+              <DetailSkeleton />
+            </>
+          }
+        >
+          <Panel params={params} />
+        </Suspense>
+      </LayerBody>
+    </RouteDrawer>
   )
 }
 
@@ -32,7 +34,7 @@ async function Panel({ params }: Pick<PageProps<"/tasks/[id]">, "params">) {
   if (!detail) notFound()
   return (
     <>
-      <SheetTitle className="sr-only">{detail.task.title}</SheetTitle>
+      <DrawerTitle className="sr-only">{detail.task.title}</DrawerTitle>
       <TaskDetail {...detail} inPanel />
     </>
   )
