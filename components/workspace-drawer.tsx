@@ -2,7 +2,7 @@
 
 import { ChevronRightIcon, XIcon, type LucideIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useLayoutEffect, useState, useSyncExternalStore } from "react"
+import { createContext, useContext, useLayoutEffect, useState, useSyncExternalStore } from "react"
 
 import {
   Drawer,
@@ -41,6 +41,7 @@ export function Layer({
   onOpenChange,
   onOpenChangeComplete,
   behind = false,
+  className,
   children,
 }: {
   /** Opens the drawer on click (uncontrolled). Leave out and pass `open` to control it. */
@@ -50,6 +51,7 @@ export function Layer({
   onOpenChangeComplete?: (open: boolean) => void
   /** A routed drawer is open on top: stack like a nested drawer and stay open. */
   behind?: boolean
+  className?: string
   children: React.ReactNode
 }) {
   const side = useSide()
@@ -64,7 +66,7 @@ export function Layer({
     >
       {trigger && <DrawerTrigger render={trigger} />}
       <DrawerContent
-        className={surface}
+        className={cn(surface, className)}
         data-nested-drawer-open={behind ? "" : undefined}
         style={behind ? ({ "--nested-drawers": 1 } as React.CSSProperties) : undefined}
       >
@@ -139,16 +141,38 @@ export function Row({
   )
 }
 
-// A routed drawer (a task, New task, Client updates): open on arrival, and going back on close.
+// Routed drawers on screen. One that takes another's place (a sub-task, a new task once added) swaps in place.
+let shown = 0
+const CloseRoute = createContext<(() => void) | null>(null)
+/** Inside a routed drawer: goes back, sliding the drawer out when that leaves the drawers. Null elsewhere. */
+export const useCloseRoute = () => useContext(CloseRoute)
+
+// A routed drawer (a task, New task, Client updates): slides in on arrival, goes back once it has slid out.
+// Base UI doesn't animate a drawer that mounts open, so it mounts closed and opens. Next keeps a closed drawer's
+// page alive (hidden), so it opens again each time it shows. Full height on phones, so the sheet doesn't jump
+// when its content streams in.
 export function RouteDrawer({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const [open, setOpen] = useState(true)
-  // Next keeps a closed drawer's page alive (hidden): reset it as it hides, so coming back to the
-  // same task opens it again.
-  useLayoutEffect(() => () => setOpen(true), [])
+  const [swap] = useState(() => shown > 0)
+  const [open, setOpen] = useState(swap)
+  useLayoutEffect(() => {
+    shown++
+    const frame = requestAnimationFrame(() => setOpen(true))
+    return () => {
+      shown--
+      cancelAnimationFrame(frame)
+    }
+  }, [])
   return (
-    <Layer open={open} onOpenChange={setOpen} onOpenChangeComplete={(o) => !o && router.back()}>
-      {children}
-    </Layer>
+    <CloseRoute.Provider value={swap ? () => router.back() : () => setOpen(false)}>
+      <Layer
+        open={open}
+        onOpenChange={setOpen}
+        onOpenChangeComplete={(o) => !o && router.back()}
+        className="data-[swipe-axis=y]:h-(--drawer-content-max-height)"
+      >
+        {children}
+      </Layer>
+    </CloseRoute.Provider>
   )
 }
