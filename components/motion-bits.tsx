@@ -1,7 +1,7 @@
 "use client"
 
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react"
-import { useEffect, ViewTransition } from "react"
+import { useEffect } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -56,37 +56,5 @@ export function Reveal({
     >
       {children}
     </motion.div>
-  )
-}
-
-// While a page transition starts, Chrome hit-tests everything to <html>, so the link under the pointer gets a
-// mouseleave. Base UI answers hover changes with flushSync (to close its tooltip), and a flushSync then makes React
-// skip the transition. Holds those events inside `ref` (the rail, the dock) until it's over.
-export function useHoldHoverInTransitions(ref: React.RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const el = ref.current
-    if (!el || !CSS.supports("selector(:active-view-transition)")) return
-    const hold = (e: Event) => {
-      if (document.documentElement.matches(":active-view-transition")) e.stopPropagation()
-    }
-    const events = ["pointerout", "pointerleave", "mouseout", "mouseleave"]
-    for (const type of events) el.addEventListener(type, hold, true)
-    return () => {
-      for (const type of events) el.removeEventListener(type, hold, true)
-    }
-  }, [ref])
-}
-
-// Route change: the page you leave fades out and lifts away, the next one fades in (its <Reveal>s rise as usual).
-// Wrap each page and its loading.tsx so the skeleton hands over the same way. Also plays when a link shows a page
-// Next kept hidden. Back/Forward swap instantly: React commits history moves synchronously (scroll restoration).
-// Updates inside a page (refreshes, optimistic edits) don't animate.
-// `enter="none"` for skeletons, which fade in on their own after a beat: React holds the page's reveal until
-// the running transition ends, so a short one lets fast pages land sooner. CSS: `.page-in` / `.page-out` in globals.css.
-export function PageTransition({ children, enter = "page-in" }: { children: React.ReactNode; enter?: "page-in" | "none" }) {
-  return (
-    <ViewTransition enter={enter} exit="page-out" default="none">
-      {children}
-    </ViewTransition>
   )
 }

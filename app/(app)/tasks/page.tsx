@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { Suspense } from "react"
 
-import { PageTransition, Reveal } from "@/components/motion-bits"
+import { Reveal } from "@/components/motion-bits"
 import { TaskBrowser } from "@/components/task-browser"
 import { toSearchParams } from "@/lib/paging"
 import { listMembers, listProjects, pageTasks } from "@/lib/queries"
@@ -25,18 +25,16 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   ])
 
   return (
-    <PageTransition>
-      <Reveal className="flex flex-col gap-6">
-        <Suspense>
-          <TaskBrowser
-            initial={{ key: paramsKey(p), rows: page.rows.map((t) => toBrowserTask(t, today)), total: page.total }}
-            projects={projects.map(({ id, name, color }) => ({ id, name, color }))}
-            members={members.map(({ id, name, image }) => ({ id, name, image }))}
-            meId={me.user.id}
-            today={today}
-          />
-        </Suspense>
-      </Reveal>
-    </PageTransition>
+    <Reveal className="flex flex-col gap-6">
+      <Suspense>
+        <TaskBrowser
+          initial={{ key: paramsKey(p), rows: page.rows.map((t) => toBrowserTask(t, today)), total: page.total }}
+          projects={projects.map(({ id, name, color }) => ({ id, name, color }))}
+          members={members.map(({ id, name, image }) => ({ id, name, image }))}
+          meId={me.user.id}
+          today={today}
+        />
+      </Suspense>
+    </Reveal>
   )
 }

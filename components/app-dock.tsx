@@ -4,10 +4,10 @@ import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, MessageSquareQuote
 import { motion } from "motion/react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Suspense, useEffect, useRef } from "react"
+import { Suspense, useEffect } from "react"
 
 import { NEW_TASK_EVENT, newTaskHref, SEARCH_EVENT, type NewTaskPreset } from "@/components/command-menu"
-import { spring, useHoldHoverInTransitions } from "@/components/motion-bits"
+import { spring } from "@/components/motion-bits"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn, isTyping, whenIdle } from "@/lib/utils"
 
@@ -64,10 +64,8 @@ function CurrentDock({ account }: { account?: React.ReactNode }) {
 }
 
 function Dock({ pathname, account }: { pathname: string | null; account?: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useHoldHoverInTransitions(ref)
   return (
-    <div ref={ref} data-app-dock className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+    <div data-app-dock className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       {/* Only the nav and the button column take clicks: the box around them (as tall as the column) would
           otherwise cover whatever sits above the nav, like the workspace's scene controls. */}
       <div className="flex items-end gap-3">

@@ -39,6 +39,7 @@ import { Pick } from "@/components/pick"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { useCloseRoute } from "@/components/workspace-drawer"
 import type { TaskPriority, TaskStatus, TaskType } from "@/lib/db/enums"
 import { uploadTo } from "@/lib/image"
 import { formatDate, HEALTH, PRIORITY, RELEASE_STAGE, STATUS } from "@/lib/labels"
@@ -128,6 +129,8 @@ export function TaskDetail({
   draft?: { meId: string }
 }) {
   const router = useRouter()
+  // In a workspace drawer, Back and Delete close the drawer (it slides out, then goes back).
+  const back = useCloseRoute() ?? router.back
   const update = useSave(saved.id)
   const [local, setLocal] = useState(saved)
   const task = draft ? local : saved
@@ -147,7 +150,7 @@ export function TaskDetail({
     if (res.error) return toast.error(res.error)
     toast.success("Task deleted")
     const parent = task.ancestors.at(-1)
-    if (inPanel) router.back()
+    if (inPanel) back()
     else router.push(parent ? `/tasks/${parent.id}` : "/tasks")
   }
 
@@ -217,7 +220,7 @@ export function TaskDetail({
     >
       <div className="flex items-center justify-between gap-2">
         <Crumbs
-          onBack={() => router.back()}
+          onBack={back}
           trail={[{ href: "/tasks", label: "Tasks" }, ...task.ancestors.map((a) => ({ href: `/tasks/${a.id}`, label: a.title }))]}
           current={draft ? "New task" : task.title}
         />

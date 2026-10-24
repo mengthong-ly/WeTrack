@@ -3,7 +3,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 import { HealthBadge, ProjectMark } from "@/components/bits"
-import { CountUp, PageTransition, ProgressBar, Reveal } from "@/components/motion-bits"
+import { CountUp, ProgressBar, Reveal } from "@/components/motion-bits"
 import { NewProject } from "@/components/new-project"
 import { formatDate, HEALTH } from "@/lib/labels"
 import { listProjects, listTasks, unreportedCounts } from "@/lib/queries"
@@ -24,55 +24,53 @@ export default async function ProjectsPage() {
   ])
 
   return (
-    <PageTransition>
-      <div className="flex flex-col gap-6">
-        <Reveal>
-          <h1 className="text-3xl font-light tracking-tight sm:text-4xl">Projects</h1>
-          <p className="mt-1 text-muted-foreground">Clients and products you&apos;re building for.</p>
-        </Reveal>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p, i) => {
-            const pt = tasks.filter((t) => t.projectId === p.id)
-            const open = pt.filter((t) => t.status !== "completed")
-            const overdue = open.filter((t) => health(t, today) === "overdue").length
-            const progress = pt.length ? Math.round(pt.reduce((s, t) => s + effectiveProgress(t), 0) / pt.length) : 0
-            const next = open.filter((t) => t.deadline).sort(byDeadline)[0]
-            return (
-              <Reveal key={p.id} index={i + 1}>
-                <div className="relative flex h-full min-h-48 flex-col rounded-tile bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                  <div className="flex items-center gap-2.5">
-                    <ProjectMark color={p.color} logo={p.logoId && attachmentSrc(p.logoId)} className="size-8" />
-                    <Link href={`/tasks?project=${p.id}`} className="min-w-0 truncate text-lg after:absolute after:inset-0 after:rounded-tile">
-                      {p.name}
-                    </Link>
-                    {pt.length > 0 && <HealthBadge health={projectHealth(pt, today)} className="ml-auto" />}
-                  </div>
-                  <span className="mt-auto pt-6 text-5xl font-light tracking-tight">
-                    <CountUp value={progress} suffix="%" />
-                  </span>
-                  <ProgressBar value={progress} className="mt-3" />
-                  <p className="mt-3 flex flex-wrap gap-x-3 text-sm text-muted-foreground">
-                    <span>{open.length} open</span>
-                    <span>{pt.length - open.length} done</span>
-                    {overdue > 0 && <span className={HEALTH.overdue.className}>{overdue} overdue</span>}
-                    {next && <span>next due {formatDate(next.deadline)}</span>}
-                  </p>
-                  <Link
-                    href={`/projects/${p.id}/updates`}
-                    className="relative z-10 mt-4 inline-flex items-center gap-2 self-start rounded-full bg-muted px-3.5 py-1.5 text-sm transition hover:bg-foreground hover:text-background"
-                  >
-                    <MessageSquareTextIcon className="size-4" />
-                    {unreported.get(p.id) ? `${unreported.get(p.id)} to tell the client` : "Client updates"}
+    <div className="flex flex-col gap-6">
+      <Reveal>
+        <h1 className="text-3xl font-light tracking-tight sm:text-4xl">Projects</h1>
+        <p className="mt-1 text-muted-foreground">Clients and products you&apos;re building for.</p>
+      </Reveal>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {projects.map((p, i) => {
+          const pt = tasks.filter((t) => t.projectId === p.id)
+          const open = pt.filter((t) => t.status !== "completed")
+          const overdue = open.filter((t) => health(t, today) === "overdue").length
+          const progress = pt.length ? Math.round(pt.reduce((s, t) => s + effectiveProgress(t), 0) / pt.length) : 0
+          const next = open.filter((t) => t.deadline).sort(byDeadline)[0]
+          return (
+            <Reveal key={p.id} index={i + 1}>
+              <div className="relative flex h-full min-h-48 flex-col rounded-tile bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-center gap-2.5">
+                  <ProjectMark color={p.color} logo={p.logoId && attachmentSrc(p.logoId)} className="size-8" />
+                  <Link href={`/tasks?project=${p.id}`} className="min-w-0 truncate text-lg after:absolute after:inset-0 after:rounded-tile">
+                    {p.name}
                   </Link>
+                  {pt.length > 0 && <HealthBadge health={projectHealth(pt, today)} className="ml-auto" />}
                 </div>
-              </Reveal>
-            )
-          })}
-          <Reveal index={projects.length + 1}>
-            <NewProject />
-          </Reveal>
-        </div>
+                <span className="mt-auto pt-6 text-5xl font-light tracking-tight">
+                  <CountUp value={progress} suffix="%" />
+                </span>
+                <ProgressBar value={progress} className="mt-3" />
+                <p className="mt-3 flex flex-wrap gap-x-3 text-sm text-muted-foreground">
+                  <span>{open.length} open</span>
+                  <span>{pt.length - open.length} done</span>
+                  {overdue > 0 && <span className={HEALTH.overdue.className}>{overdue} overdue</span>}
+                  {next && <span>next due {formatDate(next.deadline)}</span>}
+                </p>
+                <Link
+                  href={`/projects/${p.id}/updates`}
+                  className="relative z-10 mt-4 inline-flex items-center gap-2 self-start rounded-full bg-muted px-3.5 py-1.5 text-sm transition hover:bg-foreground hover:text-background"
+                >
+                  <MessageSquareTextIcon className="size-4" />
+                  {unreported.get(p.id) ? `${unreported.get(p.id)} to tell the client` : "Client updates"}
+                </Link>
+              </div>
+            </Reveal>
+          )
+        })}
+        <Reveal index={projects.length + 1}>
+          <NewProject />
+        </Reveal>
       </div>
-    </PageTransition>
+    </div>
   )
 }
