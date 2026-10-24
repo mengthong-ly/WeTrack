@@ -3,7 +3,7 @@ import "server-only"
 import { and, asc, countDistinct, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm"
 import { cache } from "react"
 
-import { CLIENT_KINDS } from "@/lib/client-update"
+import { CLIENT_KINDS, groupUpdates } from "@/lib/client-update"
 import { db } from "@/lib/db"
 import {
   activity,
@@ -461,4 +461,16 @@ function toFeedbackItem(
     recipient: f.recipient,
     canDelete: f.authorId === me.user.id || me.role !== "member",
   }
+}
+
+// A project's Client updates: what the client hasn't been told yet, grouped per task, and what was sent.
+export async function loadClientUpdates(orgId: string, projectId: string) {
+  const project = await getProject(orgId, projectId)
+  if (!project) return null
+  const [events, history] = await Promise.all([unreportedActivity(orgId, projectId), clientUpdates(orgId, projectId)])
+  const items = groupUpdates(
+    events.map((e) => ({ id: e.id, kind: e.kind, taskId: e.taskId, createdAt: e.createdAt.toISOString() })),
+    events.map((e) => ({ id: e.taskId!, title: e.title, status: e.status, deadline: e.deadline }))
+  )
+  return { project, items, history }
 }
