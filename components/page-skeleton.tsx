@@ -84,12 +84,7 @@ export function DetailSkeleton() {
   )
 }
 
-/** The header's search and account buttons, before the signed-in data arrives. */
+/** The account button, before the signed-in data arrives. */
 export function HeaderToolsSkeleton() {
-  return (
-    <div className="flex items-center gap-2" aria-hidden>
-      <span className="h-11 w-11 rounded-full bg-card/70 ring-1 ring-foreground/5 sm:w-56" />
-      <span className="size-11 rounded-full bg-card/70 ring-1 ring-foreground/5" />
-    </div>
-  )
+  return <span aria-hidden className="size-11 rounded-full bg-card/85 shadow-lg ring-1 shadow-black/5 ring-foreground/5" />
 }

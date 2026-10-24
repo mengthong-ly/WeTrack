@@ -1,6 +1,6 @@
 "use server"
 
-import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull } from "drizzle-orm"
 import { cookies, headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -10,7 +10,6 @@ import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   activity,
-  attachment,
   clientUpdate,
   comment,
   feedback,
@@ -35,11 +34,13 @@ import {
   meetingSlot,
   parseEmails,
   slackCancelled,
-  slackCreated,
+  slackMeetingCard,
 } from "@/lib/meetings"
 import { LAST_PROJECT_COOKIE } from "@/lib/options"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
+import { deleteImage, isImage, saveImage } from "@/lib/storage"
+import { attachmentSrc } from "@/lib/utils"
 import { postSlack, postToWebhook } from "@/lib/slack"
 
 type Result = { error?: string }
@@ -213,6 +214,21 @@ export async function restoreProject(projectId: string): Promise<Result> {
   return setArchived(projectId, false)
 }
 
+// Sets the project's logo from `logo` in the form, or removes it when the form has none.
+export async function setProjectLogo(projectId: string, form: FormData): Promise<Result> {
+  const me = await requireMember()
+  const p = await ownProject(me.orgId, projectId)
+  if (!p) return { error: "Project not found." }
+  const logo = form.get("logo")
+  const file = isImage(logo) ? logo : null
+  if (logo && !file) return { error: "Logos must be images under 4 MB." }
+  const logoId = file && (await saveImage(me.orgId, me.user.id, file))
+  await db.update(project).set({ logoId }).where(eq(project.id, projectId))
+  await deleteImage(p.logoId)
+  refresh()
+  return {}
+}
+
 async function setArchived(projectId: string, archived: boolean): Promise<Result> {
   const me = await requireMember()
   if (!(await ownProject(me.orgId, projectId))) return { error: "Project not found." }
@@ -356,33 +372,19 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
 
 // ---------- Images ----------
 
-const IMAGE_TYPES = ["image/webp", "image/png", "image/jpeg", "image/gif"]
-const IMAGE_MAX = 4 * 1024 * 1024
-
 // An image pasted into a task description or comment. The Markdown links to it by URL.
 export async function uploadImage(form: FormData): Promise<Result & { src?: string }> {
   const me = await requireMember()
   const image = form.get("image")
-  if (!(image instanceof File) || !IMAGE_TYPES.includes(image.type) || image.size > IMAGE_MAX) {
-    return { error: "Images must be under 4 MB." }
-  }
-  const [row] = await db
-    .insert(attachment)
-    .values({
-      organizationId: me.orgId,
-      uploaderId: me.user.id,
-      data: Buffer.from(await image.arrayBuffer()),
-      type: image.type,
-    })
-    .returning({ id: attachment.id })
-  return { src: `/api/attachments/${row.id}` }
+  if (!isImage(image)) return { error: "Images must be under 4 MB." }
+  return { src: attachmentSrc(await saveImage(me.orgId, me.user.id, image)) }
 }
 
 // ---------- Feedback ----------
 
-// A senior's points for a teammate, sent together. Each point is `body-<i>` and/or `image-<i>`.
-// With a `taskId` they go to whoever the task is assigned to now; without one, to `recipientId`.
-export async function createFeedback(form: FormData): Promise<Result & { count?: number }> {
+// One piece of feedback for a teammate: a note in `body`, its screenshots inline (uploaded as it's written).
+// With a `taskId` it goes to whoever the task is assigned to now; without one, to `recipientId`.
+export async function createFeedback(form: FormData): Promise<Result> {
   const me = await requireMember()
   const taskId = String(form.get("taskId") ?? "")
   const t = taskId ? await ownTask(me.orgId, taskId) : null
@@ -390,37 +392,22 @@ export async function createFeedback(form: FormData): Promise<Result & { count?:
   const recipientId = t ? t.assigneeId : String(form.get("recipientId") ?? "") || null
   if (!t && !recipientId) return { error: "Pick who it's for, or a task." }
   if (!t && recipientId && !(await isMember(me.orgId, recipientId))) return { error: "Pick someone on the team." }
-  const rows: (typeof feedback.$inferInsert)[] = []
-  const now = Date.now()
-  for (let i = 0; i < 30; i++) {
-    const body = String(form.get(`body-${i}`) ?? "").trim().slice(0, 5000)
-    const file = form.get(`image-${i}`)
-    const image = file instanceof File && file.size > 0 ? file : null
-    if (!body && !image) continue
-    if (image && (!IMAGE_TYPES.includes(image.type) || image.size > IMAGE_MAX)) {
-      return { error: "Screenshots must be images under 4 MB." }
-    }
-    rows.push({
-      organizationId: me.orgId,
-      taskId: t?.id ?? null,
-      authorId: me.user.id,
-      recipientId,
-      body: body || null,
-      image: image && Buffer.from(await image.arrayBuffer()),
-      imageType: image?.type ?? null,
-      // A millisecond apart, so the points keep the order they were written in.
-      createdAt: new Date(now + rows.length),
-    })
-  }
-  if (!rows.length) return { error: "Write a note or add a screenshot." }
-  await db.insert(feedback).values(rows)
+  const body = String(form.get("body") ?? "").trim().slice(0, 20000)
+  if (!body) return { error: "Write a note or add a screenshot." }
+  await db.insert(feedback).values({
+    organizationId: me.orgId,
+    taskId: t?.id ?? null,
+    authorId: me.user.id,
+    recipientId,
+    body,
+  })
   refresh()
-  return { count: rows.length }
+  return {}
 }
 
 async function ownFeedback(orgId: string, id: string) {
   return db.query.feedback.findFirst({
-    columns: { id: true, authorId: true },
+    columns: { id: true, authorId: true, body: true, imageId: true },
     where: and(eq(feedback.id, id), eq(feedback.organizationId, orgId)),
   })
 }
@@ -439,8 +426,7 @@ export async function updateFeedback(id: string, text: string): Promise<Result> 
   if (!row) return { error: "Feedback not found." }
   if (row.authorId !== me.user.id && me.role === "member") return { error: "Only the person who wrote it can edit it." }
   const body = text.trim().slice(0, 5000)
-  const [{ image }] = await db.select({ image: sql<boolean>`${feedback.image} is not null` }).from(feedback).where(eq(feedback.id, id))
-  if (!body && !image) return { error: "Write a note, or delete the point." }
+  if (!body && !row.imageId) return { error: "Write a note, or delete the feedback." }
   await db.update(feedback).set({ body: body || null }).where(eq(feedback.id, id))
   refresh()
   return {}
@@ -452,6 +438,24 @@ export async function deleteFeedback(id: string): Promise<Result> {
   if (!row) return { error: "Feedback not found." }
   if (row.authorId !== me.user.id && me.role === "member") return { error: "Only the person who wrote it can delete it." }
   await db.delete(feedback).where(eq(feedback.id, id))
+  await deleteImage(row.imageId)
+  refresh()
+  return {}
+}
+
+// Adds or replaces a feedback's screenshot from `image` in the form, or removes it when the form has none.
+export async function setFeedbackImage(id: string, form: FormData): Promise<Result> {
+  const me = await requireMember()
+  const row = await ownFeedback(me.orgId, id)
+  if (!row) return { error: "Feedback not found." }
+  if (row.authorId !== me.user.id && me.role === "member") return { error: "Only the person who wrote it can edit it." }
+  const image = form.get("image")
+  const file = isImage(image) ? image : null
+  if (image && !file) return { error: "Screenshots must be images under 4 MB." }
+  if (!file && !row.body) return { error: "Write a note first, or delete the feedback." }
+  const imageId = file && (await saveImage(me.orgId, me.user.id, file))
+  await db.update(feedback).set({ imageId }).where(eq(feedback.id, id))
+  await deleteImage(row.imageId)
   refresh()
   return {}
 }
@@ -525,6 +529,8 @@ const meetingInput = z.object({
   memberIds: z.array(z.string()).max(50, "Invite up to 50 people."),
   guests: z.string().max(2000, "That guest list is too long."),
   taskId: z.string().nullable(),
+  description: z.string().trim().max(2000, "Keep the description under 2000 characters.").optional(),
+  postToSlack: z.boolean().default(true),
 })
 
 export async function createMeeting(
@@ -533,7 +539,7 @@ export async function createMeeting(
   const me = await requireMember()
   const parsed = meetingInput.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { title, date, start, end, memberIds, guests, taskId } = parsed.data
+  const { title, date, start, end, memberIds, guests, taskId, description, postToSlack } = parsed.data
 
   const zone = tz()
   const slot = meetingSlot(date, start, end, zone)
@@ -543,7 +549,7 @@ export async function createMeeting(
   const ids = [...new Set(memberIds)]
   const members = ids.length
     ? await db
-        .select({ email: user.email })
+        .select({ email: user.email, name: user.name })
         .from(member)
         .innerJoin(user, eq(user.id, member.userId))
         .where(and(eq(member.organizationId, me.orgId), inArray(member.userId, ids)))
@@ -566,7 +572,7 @@ export async function createMeeting(
 
   const event = await createEvent(token, {
     title,
-    description: t ? `From WeTrack: ${process.env.BETTER_AUTH_URL}/tasks/${t.id}` : "",
+    description: [description, t && `From WeTrack: ${process.env.BETTER_AUTH_URL}/tasks/${t.id}`].filter(Boolean).join("\n\n"),
     slot,
     // Google adds the organizer itself.
     emails: emails.filter((e) => e !== myEmail),
@@ -589,13 +595,14 @@ export async function createMeeting(
           taskId: t?.id ?? null,
           createdById: me.user.id,
           title,
+          description: description || null,
           ...slot,
           attendeeEmails: emails,
           googleEventId: event.id,
           meetUrl: event.meetUrl,
           calendarUrl: event.calendarUrl,
           // Inside the reminder window the create post below already tells Slack, so the cron skips it.
-          remindedAt: slot.startsAt.getTime() - Date.now() <= LEAD_MINUTES * 60_000 ? new Date() : null,
+          remindedAt: postToSlack && slot.startsAt.getTime() - Date.now() <= LEAD_MINUTES * 60_000 ? new Date() : null,
         })
         .returning()
       if (t)
@@ -617,13 +624,45 @@ export async function createMeeting(
 
   let warning: string | undefined
   try {
-    await postSlack(me.orgId, slackCreated(row, me.user.name, zone))
+    const names = [me.user.name, ...members.map((m) => m.name), ...parsedGuests.emails]
+    if (postToSlack) await postSlack(me.orgId, slackMeetingCard(row, me.user.name, zone, [...new Set(names)]))
   } catch {
     console.error("Slack post failed: meeting created")
     warning = "Meeting created, but Slack didn't get it."
   }
   refresh()
   return { id: row.id, joinUrl: joinUrl(row), warning }
+}
+
+/** Posts the meeting card again, for a meeting created without it or one people should be reminded of. */
+export async function sendMeetingToSlack(id: string): Promise<Result> {
+  const me = await requireMember()
+  const m = await db.query.meeting.findFirst({
+    where: and(eq(meeting.id, id), eq(meeting.organizationId, me.orgId), isNull(meeting.canceledAt)),
+  })
+  if (!m) return { error: "Meeting not found." }
+  // Same rule as cancelMeeting.
+  if (m.createdById !== me.user.id && me.role === "member")
+    return { error: "Only the organizer or an admin can send it to Slack." }
+
+  // Workspace members by name, guests by email; the organizer first.
+  const people = await db
+    .select({ id: user.id, email: user.email, name: user.name })
+    .from(member)
+    .innerJoin(user, eq(user.id, member.userId))
+    .where(eq(member.organizationId, me.orgId))
+  const byEmail = new Map(people.map((p) => [p.email.toLowerCase(), p.name]))
+  const organizer = people.find((p) => p.id === m.createdById)?.name ?? me.user.name
+  const names = [organizer, ...m.attendeeEmails.map((e) => byEmail.get(e) ?? e)]
+
+  try {
+    const sent = await postSlack(me.orgId, slackMeetingCard(m, organizer, tz(), [...new Set(names)]))
+    if (sent === "skipped") return { error: "Connect Slack on the Team page first." }
+  } catch {
+    console.error(`Slack post failed: meeting ${m.id} sent`)
+    return { error: "Slack didn't accept the message. Try again." }
+  }
+  return {}
 }
 
 export async function cancelMeeting(id: string): Promise<Result & { warning?: string }> {

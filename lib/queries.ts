@@ -405,7 +405,7 @@ export const openFeedback = cache(async (orgId: string, userId: string) => {
   return open as Record<FeedbackWho, number>
 })
 
-// A page of feedback points (never the screenshot bytes), newest first: for me, from me or everyone, open or fixed.
+// A page of feedback (never the screenshot bytes), newest first: for me, from me or everyone, open or fixed.
 export async function feedbackPage(me: Me, who: FeedbackWho, fixed: boolean, offset: number, limit: number) {
   const where = and(
     eq(feedback.organizationId, me.orgId),
@@ -414,7 +414,6 @@ export async function feedbackPage(me: Me, who: FeedbackWho, fixed: boolean, off
   )
   const [rows, total, open] = await Promise.all([
     db.query.feedback.findMany({
-      columns: { image: false },
       where,
       with: FEEDBACK_WITH,
       orderBy: [desc(feedback.createdAt), desc(feedback.id)],
@@ -427,10 +426,9 @@ export async function feedbackPage(me: Me, who: FeedbackWho, fixed: boolean, off
   return { rows: rows.map((f) => toFeedbackItem(me, f)), total, open }
 }
 
-// One point for its own page, or null when it isn't in this workspace. Cached per request (metadata + page).
+// One feedback for its own page, or null when it isn't in this workspace. Cached per request (metadata + page).
 export const getFeedback = cache(async (me: Me, id: string) => {
   const f = await db.query.feedback.findFirst({
-    columns: { image: false },
     where: and(eq(feedback.id, id), eq(feedback.organizationId, me.orgId)),
     with: FEEDBACK_WITH,
   })
@@ -446,7 +444,7 @@ const FEEDBACK_WITH = {
 type Person = { id: string; name: string; image: string | null }
 function toFeedbackItem(
   me: Me,
-  f: Omit<typeof feedback.$inferSelect, "image"> & {
+  f: typeof feedback.$inferSelect & {
     task: { id: string; title: string; project: { name: string; color: string } } | null
     author: Person | null
     recipient: Person | null
@@ -455,7 +453,7 @@ function toFeedbackItem(
   return {
     id: f.id,
     body: f.body,
-    hasImage: !!f.imageType,
+    imageId: f.imageId,
     resolved: !!f.resolvedAt,
     when: ago(f.createdAt),
     task: f.task && { id: f.task.id, title: f.task.title, color: f.task.project.color, project: f.task.project.name },

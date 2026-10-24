@@ -42,6 +42,7 @@ export const project = pgTable(
     organizationId: orgId(),
     name: text("name").notNull(),
     color: text("color").notNull().default("#737373"),
+    logoId: text("logo_id").references((): AnyPgColumn => attachment.id, { onDelete: "set null" }),
     archived: boolean("archived").notNull().default(false),
     createdAt: createdAt(),
   },
@@ -203,6 +204,7 @@ export const meeting = pgTable(
     taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
     createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
     title: text("title").notNull(),
+    description: text("description"),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     attendeeEmails: text("attendee_emails").array().notNull(),
@@ -226,10 +228,8 @@ export const workspaceIntegration = pgTable("workspace_integration", {
 
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" })
 
-// One point of feedback for a teammate: a note, a screenshot, or both. It may name a task, and then it goes to
-// whoever the task was assigned to when it was written. The image lives in the row (screenshots are shrunk to
-// WebP in the browser first), so there is no file store to back up; lists select every column but `image`.
-// ponytail: images in Postgres, move to object storage if the table passes a few GB.
+// One piece of feedback for a teammate: a note (screenshots inline), or an older row's single screenshot. It may name a task, and then it goes to
+// whoever the task was assigned to when it was written. The screenshot is an attachment (lib/storage.ts).
 export const feedback = pgTable(
   "feedback",
   {
@@ -239,23 +239,25 @@ export const feedback = pgTable(
     authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
     recipientId: text("recipient_id").references(() => user.id, { onDelete: "set null" }),
     body: text("body"),
-    image: bytea("image"),
-    imageType: text("image_type"),
+    imageId: text("image_id").references(() => attachment.id, { onDelete: "set null" }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [index("feedback_org_idx").on(t.organizationId, t.createdAt), index("feedback_task_idx").on(t.taskId)]
 )
 
-// An image pasted into a task description or comment, linked from the Markdown as /api/attachments/<id>.
-// ponytail: no orphan cleanup (an image removed from the text stays); sweep unreferenced rows if the table grows.
+// Every stored image: pasted into a task description or comment (linked from the Markdown as
+// /api/attachments/<id>), a feedback screenshot, or a project logo. `key` is its R2 object; `data` holds the
+// bytes instead when R2 isn't configured, and for images stored before R2.
+// ponytail: no orphan cleanup for Markdown images (one removed from the text stays); sweep unreferenced rows if the bucket grows.
 export const attachment = pgTable(
   "attachment",
   {
     id: id(),
     organizationId: orgId(),
     uploaderId: text("uploader_id").references(() => user.id, { onDelete: "set null" }),
-    data: bytea("data").notNull(),
+    key: text("key"),
+    data: bytea("data"),
     type: text("type").notNull(),
     createdAt: createdAt(),
   },

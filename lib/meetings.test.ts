@@ -11,6 +11,7 @@ import {
   parseEmails,
   slackCancelled,
   slackCreated,
+  slackMeetingCard,
   slackReminder,
   type Slot,
   zonedToUtc,
@@ -102,4 +103,35 @@ test("canJoin: invitees, creator, owners and admins; share sees all", () => {
   assert.equal(canJoin(m, { userId: "u-4", email: "o@x.test", role: "owner" }), true)
   assert.equal(canJoin(m, member("u-5", "sok@x.test")), false)
   assert.equal(canJoin(m, "share"), true)
+})
+
+test("slack meeting card", () => {
+  const card = slackMeetingCard({ ...m(), description: "Agenda:\n- Q&A <live>" }, "Dara", TZ, ["Dara", "ceo@x.com"])
+  assert.equal(card.text, slackCreated(m(), "Dara", TZ))
+  assert.deepEqual(card.blocks, [
+    { type: "header", text: { type: "plain_text", text: "Design review" } },
+    { type: "section", text: { type: "mrkdwn", text: "Agenda:\n- Q&amp;A &lt;live&gt;" } },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: "*When*\nWed 21 Oct, 14:00–14:30" },
+        { type: "mrkdwn", text: "*Organizer*\nDara" },
+        { type: "mrkdwn", text: "*Attendees*\nDara, ceo@x.com" },
+      ],
+    },
+    {
+      type: "actions",
+      elements: [{ type: "button", text: { type: "plain_text", text: "Join meeting" }, url: "https://meet.google.com/abc-defg-hij", style: "primary" }],
+    },
+  ])
+
+  // No description, no link, no attendees: those blocks drop out. Long titles fit Slack's 150-char header.
+  const bare = slackMeetingCard({ ...m({ title: "x".repeat(200), meetUrl: null, calendarUrl: null }), description: null }, "Dara", TZ, [])
+  assert.deepEqual(bare.blocks.map((b) => b.type), ["header", "section"])
+  assert.equal((bare.blocks[0] as { text: { text: string } }).text.text, "x".repeat(149) + "…")
+  assert.equal((bare.blocks[1] as { fields: unknown[] }).fields.length, 2)
+
+  // Past six names the list ends with "+N more".
+  const many = slackMeetingCard({ ...m(), description: "" }, "Dara", TZ, ["a", "b", "c", "d", "e", "f", "g", "h"])
+  assert.equal((many.blocks[1] as { fields: { text: string }[] }).fields[2].text, "*Attendees*\na, b, c, d, e, f +2 more")
 })

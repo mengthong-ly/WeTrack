@@ -1,12 +1,14 @@
 "use client"
 
-import type { Editor, JSONContent } from "@tiptap/react"
+import type { Editor } from "@tiptap/react"
 import {
   CircleCheckIcon,
   ChevronRightIcon,
   CircleDashedIcon,
   ClockIcon,
+  ImageOffIcon,
   ImagePlusIcon,
+  ImageUpIcon,
   ListChecksIcon,
   MoreHorizontalIcon,
   PenLineIcon,
@@ -25,6 +27,7 @@ import { toast } from "sonner"
 import {
   createFeedback,
   deleteFeedback,
+  setFeedbackImage,
   setFeedbackResolved,
   updateFeedback,
 } from "@/app/actions"
@@ -38,11 +41,11 @@ import {
   SideSection,
   Tuned,
 } from "@/components/editor-tools"
+import { ImageGallery } from "@/components/image-gallery"
 import { Reveal, spring } from "@/components/motion-bits"
 import { Pick } from "@/components/pick"
 import { PillTabs } from "@/components/pill-tabs"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,10 +53,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FEEDBACK_PAGE, feedbackKey, type FeedbackWho, readFeedbackParams } from "@/lib/paging"
-import { uploadTo } from "@/lib/image"
+import { imageForm, shrink, uploadTo } from "@/lib/image"
 import { type ListPage, useServerList } from "@/lib/use-server-list"
 import { plainText } from "@/lib/markdown"
-import { cn } from "@/lib/utils"
+import { attachmentSrc, cn } from "@/lib/utils"
 
 // Tiptap loads after the page; until then read-only notes show as written.
 const RichText = dynamic(() =>
@@ -64,7 +67,7 @@ type Person = { id: string; name: string; image: string | null }
 export type FeedbackItem = {
   id: string
   body: string | null
-  hasImage: boolean
+  imageId: string | null
   resolved: boolean
   when: string
   task: { id: string; title: string; color: string; project: string } | null
@@ -86,8 +89,8 @@ const EMPTY: Record<Who, string> = {
   all: "No open feedback. Give some with the button above.",
 }
 
-// Tab, Open / Fixed and how many points are shown live in the URL (?who=, ?fixed=1, ?show=), changed through the
-// History API like the Tasks filters; useServerList fetches the points for the new URL.
+// Tab, Open / Fixed and how many are shown live in the URL (?who=, ?fixed=1, ?show=), changed through the
+// History API like the Tasks filters; useServerList fetches the feedback for the new URL.
 function setParam(key: string, value: string | null, { replace = false } = {}) {
   const q = new URLSearchParams(window.location.search)
   if (value) q.set(key, value)
@@ -113,7 +116,6 @@ export function FeedbackBoard({
     (state, { id, resolved }: { id: string; resolved: boolean }) =>
       state.map((i) => (i.id === id ? { ...i, resolved } : i))
   )
-  const [viewing, setViewing] = useState<FeedbackItem | null>(null)
   const [, start] = useTransition()
 
   // Pin the first tab into the URL, so the board stays on it when a fix changes what the default would be.
@@ -123,9 +125,9 @@ export function FeedbackBoard({
   const setWho = (w: Who) => setParam("who", w)
   const setFixed = (f: boolean) => setParam("fixed", f ? "1" : null)
 
-  // A point ticked fixed leaves the Open list at once; the server's next page agrees.
+  // Feedback ticked fixed leaves the Open list at once; the server's next page agrees.
   const shown = optimistic.filter((i) => i.resolved === fixed)
-  // Grouped by task (points without one, by who they're for), newest feedback first; points inside a group read in
+  // Grouped by task (feedback without one, by who they're for), newest feedback first; feedback inside a group reads in
   // the order they were written.
   const byGroup = new Map<string, FeedbackItem[]>()
   for (const i of shown) {
@@ -147,7 +149,7 @@ export function FeedbackBoard({
   }
 
   function remove(item: FeedbackItem) {
-    if (!confirm("Delete this point? This can't be undone.")) return
+    if (!confirm("Delete this feedback? This can't be undone.")) return
     start(async () => {
       const res = await deleteFeedback(item.id)
       if (res.error) toast.error(res.error)
@@ -274,7 +276,6 @@ export function FeedbackBoard({
                         item={p}
                         onResolve={resolve}
                         onDelete={remove}
-                        onView={setViewing}
                       />
                     ))}
                   </AnimatePresence>
@@ -285,7 +286,7 @@ export function FeedbackBoard({
         </AnimatePresence>
         {groups.length === 0 && (
           <p className="rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground">
-            {fixed ? "Fixed points show up here." : EMPTY[who]}
+            {fixed ? "Fixed feedback shows up here." : EMPTY[who]}
           </p>
         )}
         <LoadMore
@@ -296,29 +297,6 @@ export function FeedbackBoard({
         />
       </Reveal>
 
-      <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
-        <DialogContent className="gap-3 rounded-tile bg-card p-2 sm:max-w-5xl">
-          <DialogTitle className="sr-only">Screenshot</DialogTitle>
-          {viewing && (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it */}
-              <img
-                src={`/api/feedback/${viewing.id}`}
-                alt="Screenshot"
-                className="max-h-[80dvh] w-full rounded-panel bg-muted object-contain"
-              />
-              {viewing.body && (
-                <RichText
-                  editable={false}
-                  defaultValue={viewing.body}
-                  className="px-3 pb-2"
-                  contentClassName="text-sm text-muted-foreground"
-                />
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   )
 }
@@ -327,12 +305,10 @@ function Point({
   item,
   onResolve,
   onDelete,
-  onView,
 }: {
   item: FeedbackItem
   onResolve: (item: FeedbackItem, resolved: boolean) => void
   onDelete: (item: FeedbackItem) => void
-  onView: (item: FeedbackItem) => void
 }) {
   const done = item.resolved
   return (
@@ -344,7 +320,7 @@ function Point({
       transition={spring}
       className="group relative flex gap-3 rounded-row bg-muted/60 py-3 pr-2 pl-3 transition-[background-color,scale] duration-150 ease-out hover:bg-muted has-[[data-row-link]:active]:scale-[0.99] sm:pl-4"
     >
-      {/* The whole row opens the point, like a TaskCard; the controls below sit above this link (z-10). */}
+      {/* The whole row opens the feedback, like a TaskCard; the controls below sit above this link (z-10). */}
       <Link
         href={`/feedback/${item.id}`}
         data-row-link
@@ -382,7 +358,8 @@ function Point({
           />
         </svg>
       </button>
-      <div className="min-w-0 flex-1">
+      {/* Read-only content lets clicks through to the row link, so anywhere on it opens the feedback. */}
+      <div className="pointer-events-none min-w-0 flex-1">
         {item.body && (
           <RichText
             editable={false}
@@ -394,25 +371,22 @@ function Point({
             )}
           />
         )}
-        {item.hasImage && (
-          <button
-            type="button"
-            onClick={() => onView(item)}
-            aria-label="Open screenshot"
+        {item.imageId && (
+          <div
             className={cn(
-              "relative z-10 block w-full max-w-lg cursor-zoom-in overflow-hidden rounded-xl bg-card ring-1 ring-foreground/5 transition-[scale,opacity] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[0.98]",
+              "w-full max-w-lg overflow-hidden rounded-xl bg-card ring-1 ring-foreground/5",
               item.body && "mt-2.5",
               done && "opacity-60"
             )}
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it */}
             <img
-              src={`/api/feedback/${item.id}`}
+              src={attachmentSrc(item.imageId)}
               alt=""
               loading="lazy"
               className="h-44 w-full object-cover object-top sm:h-56"
             />
-          </button>
+          </div>
         )}
         <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
           {item.author && (
@@ -437,14 +411,14 @@ function Point({
           <DropdownMenuContent align="end">
             <DropdownMenuItem render={<Link href={`/feedback/${item.id}`} />}>
               <PenLineIcon />
-              Edit point
+              Edit feedback
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               onClick={() => onDelete(item)}
             >
               <Trash2Icon />
-              Delete point
+              Delete feedback
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -453,9 +427,9 @@ function Point({
   )
 }
 
-// ---------- One point ----------
+// ---------- One feedback ----------
 
-// A point's own page (/feedback/[id]): the note and full-size screenshot as one document, who and what it's about in
+// A feedback's own page (/feedback/[id]): the note and full-size screenshot as one document, who and what it's about in
 // the side panel, and the dark pill to mark it fixed (or reopen it).
 export function FeedbackDetail({ item }: { item: FeedbackItem }) {
   const router = useRouter()
@@ -488,8 +462,19 @@ export function FeedbackDetail({ item }: { item: FeedbackItem }) {
     })
   }
 
+  // Adds, replaces or (with null) removes the screenshot; the page shows the new one once it's saved.
+  const picker = useRef<HTMLInputElement>(null)
+  function setImage(file: File | null) {
+    if (!file && !confirm("Remove the screenshot from this feedback?")) return
+    start(async () => {
+      const res = await setFeedbackImage(item.id, file ? imageForm("image", await shrink(file)) : new FormData())
+      if (res.error) toast.error(res.error)
+      else toast.success(file ? "Screenshot saved" : "Screenshot removed")
+    })
+  }
+
   function remove() {
-    if (!confirm("Delete this point? This can't be undone.")) return
+    if (!confirm("Delete this feedback? This can't be undone.")) return
     start(async () => {
       const res = await deleteFeedback(item.id)
       if (res.error) return void toast.error(res.error)
@@ -517,6 +502,7 @@ export function FeedbackDetail({ item }: { item: FeedbackItem }) {
         </div>
       </div>
 
+      <ImageGallery>
       <FocusLayout
         side={
           <>
@@ -546,15 +532,36 @@ export function FeedbackDetail({ item }: { item: FeedbackItem }) {
             </SideSection>
             {item.canDelete && (
               <SideSection label="Actions">
+                <input
+                  ref={picker}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden
+                  onChange={(e) => {
+                    const file = e.currentTarget.files?.[0]
+                    e.currentTarget.value = ""
+                    if (file) setImage(file)
+                  }}
+                />
+                <SideAction icon={item.imageId ? ImageUpIcon : ImagePlusIcon} onClick={() => picker.current?.click()} disabled={pending}>
+                  {item.imageId ? "Replace screenshot" : "Add screenshot"}
+                </SideAction>
+                {item.imageId && item.body && (
+                  <SideAction icon={ImageOffIcon} onClick={() => setImage(null)} disabled={pending}>
+                    Remove screenshot
+                  </SideAction>
+                )}
                 <SideAction icon={Trash2Icon} onClick={remove} disabled={pending} destructive>
-                  Delete point
+                  Delete feedback
                 </SideAction>
               </SideSection>
             )}
           </>
         }
       >
-        {/* The point as one document: who it's for in a quiet line, the note, then the screenshot at full size. */}
+        {/* The feedback as one document: who it's for in a quiet line, the note, then the screenshot at full size. */}
         <article className="flex flex-col rounded-tile bg-card px-5 py-6 shadow-sm sm:px-10 sm:py-9">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span>
@@ -582,23 +589,23 @@ export function FeedbackDetail({ item }: { item: FeedbackItem }) {
               />
             </Tuned>
           )}
-          {item.hasImage && (
-            <a
-              href={`/api/feedback/${item.id}`}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open screenshot full size"
+          {item.imageId && (
+            <button
+              type="button"
+              data-zoom
+              aria-label="Open screenshot"
               className={cn(
-                "block cursor-zoom-in overflow-hidden rounded-panel bg-muted ring-1 ring-foreground/5 transition-[scale] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-99",
+                "block max-w-full cursor-zoom-in self-start overflow-hidden rounded-panel bg-muted ring-1 ring-foreground/5 transition-[scale] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-99",
                 item.body && "mt-6"
               )}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it */}
-              <img src={`/api/feedback/${item.id}`} alt="Screenshot" className="w-full" />
-            </a>
+              <img src={attachmentSrc(item.imageId)} alt="Screenshot" className="max-h-72 w-auto object-contain" />
+            </button>
           )}
         </article>
       </FocusLayout>
+      </ImageGallery>
     </div>
   )
 }
@@ -615,59 +622,12 @@ function Person({ person, fallback }: { person: Person | null; fallback: string 
 
 // ---------- Composer ----------
 
-// The composer is one page: each line or list item is a point, a heading goes with the point under it, and a
-// screenshot belongs to the line above it (text after a screenshot starts the next point). Screenshots stay in the
-// browser (blob: URLs) until Send, then go up with their point as before.
-type Block = {
-  type?: string
-  attrs?: Record<string, string>
-  content?: Block[]
-}
-type Point = { nodes: Block[]; image?: Blob }
-const LISTS = new Set(["bulletList", "orderedList", "taskList"])
-
-function toPoints(editor: Editor, images: Map<string, Blob>) {
-  const points: Point[] = []
-  let current: Point | null = null
-  let titled = false // the last block was a heading, so the next one joins its point
-  const take = (node: Block) => {
-    if (node.type === "image") {
-      const blob = images.get(node.attrs?.src ?? "")
-      const last = points.at(-1)
-      if (blob && last && !last.image) last.image = blob
-      else if (blob) points.push({ nodes: [], image: blob })
-      current = null
-      titled = false
-    } else if (node.type !== "paragraph" || node.content?.length) {
-      if (!current) points.push((current = { nodes: [] }))
-      current.nodes.push(node)
-      titled = node.type === "heading"
-    }
-  }
-  for (const node of (editor.getJSON().content ?? []) as Block[]) {
-    for (const part of LISTS.has(node.type ?? "")
-      ? (node.content ?? [])
-      : [{ content: [node] }]) {
-      if (!titled) current = null
-      part.content?.forEach(take)
-    }
-  }
-  return points.map((p) => ({
-    body: p.nodes.length
-      ? (editor.markdown
-          ?.serialize({ type: "doc", content: p.nodes as JSONContent[] })
-          .trim() ?? "")
-      : "",
-    image: p.image,
-  }))
-}
-
 // What you wrote stays if you leave the page before sending (until a reload); Send clears it. Only
 // ever written in the browser, so the server's copy of this module stays empty.
-const saved = { taskId: "", recipientId: "", draft: "", images: new Map<string, Blob>() }
+const saved = { taskId: "", recipientId: "", draft: "" }
 const NO_TASK = "none"
 
-// The Give feedback page: pick who it's for (or a task, which picks its assignee), then write one page of points.
+// The Give feedback page: pick who it's for (or a task, which picks its assignee), then write it.
 export function GiveFeedback({
   tasks,
   people,
@@ -681,7 +641,7 @@ export function GiveFeedback({
   const router = useRouter()
   const [taskId, setTaskId] = useState(linked ?? saved.taskId)
   const [recipientId, setRecipientId] = useState(saved.recipientId)
-  const [count, setCount] = useState(0)
+  const [empty, setEmpty] = useState(!saved.draft)
   const editor = useRef<Editor>(null)
   const [error, setError] = useState<string>()
   const [pending, start] = useTransition()
@@ -693,7 +653,7 @@ export function GiveFeedback({
   function ready(e: Editor) {
     editor.current = e
     const sync = () => {
-      setCount(toPoints(e, saved.images).length)
+      setEmpty(e.isEmpty)
       saved.draft = e.isEmpty ? "" : e.getMarkdown()
     }
     sync()
@@ -702,26 +662,15 @@ export function GiveFeedback({
 
   function submit() {
     if (!editor.current) return
-    const points = toPoints(editor.current, saved.images)
     const form = new FormData()
     if (task) form.set("taskId", task.id)
     else form.set("recipientId", recipientId)
-    points.forEach((p, i) => {
-      form.set(`body-${i}`, p.body)
-      if (p.image)
-        form.set(
-          `image-${i}`,
-          p.image,
-          `screenshot-${i}.${p.image.type.split("/")[1]}`
-        )
-    })
+    form.set("body", editor.current.getMarkdown())
     start(async () => {
       const res = await createFeedback(form)
       if (res.error) return setError(res.error)
-      saved.images.forEach((_, src) => URL.revokeObjectURL(src))
-      Object.assign(saved, { taskId: "", recipientId: "", draft: "", images: new Map() })
-      const n = res.count === 1 ? "1 point" : `${res.count} points`
-      toast.success(forName ? `Sent ${n} to ${forName.split(" ")[0]}` : `Saved ${n}`)
+      Object.assign(saved, { taskId: "", recipientId: "", draft: "" })
+      toast.success(forName ? `Sent feedback to ${forName.split(" ")[0]}` : "Feedback saved")
       router.replace("/feedback")
     })
   }
@@ -747,16 +696,13 @@ export function GiveFeedback({
           <Button
             type="submit"
             className="h-11 rounded-full px-5 transition-[background-color,scale] active:scale-95"
-            disabled={pending || (!task && !recipientId) || count === 0}
+            disabled={pending || (!task && !recipientId) || empty}
           >
-            {pending
-              ? "Sending…"
-              : count > 1
-                ? `Send ${count} points`
-                : "Send feedback"}
+            {pending ? "Sending…" : "Send feedback"}
           </Button>
         </div>
       </div>
+      <ImageGallery>
       <FocusLayout
         title={<h1 className="sr-only">Give feedback</h1>}
         side={
@@ -822,12 +768,8 @@ export function GiveFeedback({
             autoFocus
             aria-label="Feedback"
             defaultValue={saved.draft}
-            placeholder="What should change? One line per point. Paste a screenshot under its line."
-            onImage={async (blob) => {
-              const src = URL.createObjectURL(blob)
-              saved.images.set(src, blob)
-              return src
-            }}
+            placeholder="What should change? Paste screenshots where they help."
+            onImage={uploadTo}
             onReady={ready}
             contentClassName="min-h-[60dvh] text-base"
           />
@@ -843,6 +785,7 @@ export function GiveFeedback({
           </p>
         )}
       </FocusLayout>
+      </ImageGallery>
     </form>
   )
 }

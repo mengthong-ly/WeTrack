@@ -1,12 +1,12 @@
 "use client"
 
-import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, MessageSquareQuoteIcon, PlusIcon, UsersIcon } from "lucide-react"
+import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, MessageSquareQuoteIcon, PlusIcon, SearchIcon, UsersIcon } from "lucide-react"
 import { motion } from "motion/react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { Suspense, useEffect, useRef } from "react"
 
-import { NEW_TASK_EVENT, newTaskHref, type NewTaskPreset } from "@/components/command-menu"
+import { NEW_TASK_EVENT, newTaskHref, SEARCH_EVENT, type NewTaskPreset } from "@/components/command-menu"
 import { spring, useHoldHoverInTransitions } from "@/components/motion-bits"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn, isTyping, whenIdle } from "@/lib/utils"
@@ -20,28 +20,55 @@ export const NAV = [
   { href: "/team", label: "Team", icon: UsersIcon },
 ]
 
-// Floating pill nav + dark "+" button, like the reference screens. No data, so it's in the
-// prefetched shell; "+" asks NewTaskHost to open the New task page.
-export function AppDock() {
+// The round glass search button beside the "+" (rail and dock); opens the CommandMenu. There's no header.
+export function SearchButton({ side }: { side: "left" | "right" }) {
   return (
-    <Suspense fallback={<Dock pathname={null} />}>
-      <CurrentDock />
+    <Tooltip>
+      <TooltipTrigger
+        delay={400}
+        render={
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(SEARCH_EVENT))}
+            aria-label="Search and commands"
+            className="grid size-11 place-items-center rounded-full bg-card/85 text-muted-foreground shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl transition-[color,scale] hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-95"
+          />
+        }
+      >
+        <SearchIcon className="size-5" />
+      </TooltipTrigger>
+      <TooltipContent side={side} sideOffset={10} className="rounded-full py-1.5 pr-1.5 pl-3">
+        Search
+        <kbd data-slot="kbd" className="grid h-5 min-w-5 place-items-center bg-background/15 px-1 font-sans text-[11px]">
+          ⌘K
+        </kbd>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+// Floating pill nav + dark "+" button, like the reference screens. No data, so it's in the
+// prefetched shell; "+" asks NewTaskHost to open the New task page. Search and `account` stack above the "+".
+export function AppDock({ account }: { account?: React.ReactNode }) {
+  return (
+    <Suspense fallback={<Dock pathname={null} account={account} />}>
+      <CurrentDock account={account} />
     </Suspense>
   )
 }
 
 // The path is unknown while a dynamic route (/tasks/[id]) prerenders: the dock shows with no
 // active pill there until it streams in. Everywhere else it resolves in the shell.
-function CurrentDock() {
-  return <Dock pathname={usePathname()} />
+function CurrentDock({ account }: { account?: React.ReactNode }) {
+  return <Dock pathname={usePathname()} account={account} />
 }
 
-function Dock({ pathname }: { pathname: string | null }) {
+function Dock({ pathname, account }: { pathname: string | null; account?: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   useHoldHoverInTransitions(ref)
   return (
     <div ref={ref} data-app-dock className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-      <div className="pointer-events-auto flex items-center gap-3">
+      <div className="pointer-events-auto flex items-end gap-3">
         <nav
           aria-label="Main"
           className="flex items-center gap-0.5 rounded-full bg-card/85 p-1.5 sm:gap-1 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl"
@@ -82,6 +109,12 @@ function Dock({ pathname }: { pathname: string | null }) {
             )
           })}
         </nav>
+        <div className="flex flex-col items-center gap-2">
+          {/* Search and account step aside on focus pages, like the rail; the "+" stays. */}
+          <div data-app-header className="flex flex-col items-center gap-2">
+            <SearchButton side="left" />
+            {account}
+          </div>
         <Tooltip>
           <TooltipTrigger
             delay={400}
@@ -106,6 +139,7 @@ function Dock({ pathname }: { pathname: string | null }) {
             </kbd>
           </TooltipContent>
         </Tooltip>
+        </div>
       </div>
     </div>
   )

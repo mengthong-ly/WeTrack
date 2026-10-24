@@ -4,6 +4,8 @@ import {
   ArchiveRestoreIcon,
   BoxIcon,
   CircleHelpIcon,
+  ImageOffIcon,
+  ImagePlusIcon,
   MessageSquareTextIcon,
   MoreHorizontalIcon,
   PanelLeftIcon,
@@ -17,7 +19,7 @@ import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
-import { archiveProject, restoreProject, updateProject, updateTask } from "@/app/actions"
+import { archiveProject, restoreProject, setProjectLogo, updateProject, updateTask } from "@/app/actions"
 import { HealthBadge, ProjectDot, UserAvatar } from "@/components/bits"
 import { NEW_TASK_EVENT, type NewTaskPreset } from "@/components/command-menu"
 import { CountUp, ProgressBar } from "@/components/motion-bits"
@@ -37,6 +39,7 @@ import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import type { TaskStatus } from "@/lib/db/enums"
+import { imageForm, shrink } from "@/lib/image"
 import { HEALTH, PROJECT_COLORS, PROJECT_HEALTH, STATUS } from "@/lib/labels"
 import type { MemberLite } from "@/lib/options"
 import type { SceneData, SceneMember, SceneProject } from "@/lib/scene"
@@ -523,7 +526,7 @@ function Legend() {
           <li>Click anything to open it.</li>
           <li>Drag a block onto another status, or unassigned work onto a person.</li>
           <li>
-            Press <kbd className="rounded-md bg-muted px-1.5 text-[11px]">/</kbd> to search. Overview brings you back.
+            Press <kbd className="rounded-md bg-muted px-1.5 text-[11px]">/</kbd> to search. The recentre button brings you back.
           </li>
         </ul>
         <button
@@ -661,13 +664,49 @@ function ProjectPanel({
       const res = await updateProject(project.id, patch)
       if (res.error) toast.error(res.error)
     })
+  // The logo shows at once (a blob: URL) while it uploads; a failure puts the old one back.
+  const [logo, setLogo] = useState(project.logo)
+  const [uploading, startUpload] = useTransition()
+  const saveLogo = (file: File | null) =>
+    startUpload(async () => {
+      const image = file && (await shrink(file, 512))
+      setLogo(image && URL.createObjectURL(image))
+      const res = await setProjectLogo(project.id, image ? imageForm("logo", image) : new FormData())
+      if (res.error) {
+        toast.error(res.error)
+        setLogo(project.logo)
+      }
+    })
 
   return (
     <>
       <SheetHeader className="px-6 pt-6 pb-4">
         <SheetTitle className="sr-only">{project.name}</SheetTitle>
-        <div className="flex items-center gap-2 pr-8">
-          <ProjectDot color={color} className="size-3" />
+        <div className="flex items-center gap-3 pr-8">
+          <label
+            aria-label={logo ? "Replace logo" : "Add logo"}
+            className={cn(
+              "grid size-11 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full bg-muted text-muted-foreground transition-[background-color,scale,opacity] hover:bg-muted/70 hover:text-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50 active:scale-95",
+              uploading && "pointer-events-none opacity-60"
+            )}
+          >
+            {logo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it
+              <img src={logo} alt="" className="size-full bg-card object-contain" />
+            ) : (
+              <ImagePlusIcon className="size-4" />
+            )}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0]
+                e.currentTarget.value = ""
+                if (file) saveLogo(file)
+              }}
+            />
+          </label>
           {/* Edit in place: saves on blur or Enter. */}
           <form
             className="min-w-0 flex-1"
@@ -733,6 +772,12 @@ function ProjectPanel({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuGroup>
+                {logo && (
+                  <DropdownMenuItem onClick={() => saveLogo(null)}>
+                    <ImageOffIcon />
+                    Remove logo
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   onClick={async () => {

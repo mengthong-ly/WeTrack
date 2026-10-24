@@ -195,8 +195,9 @@
   .rich hr {
     @apply my-2 h-px border-0 bg-foreground/10;
   }
+  /* Kept small in the text; a click opens it large in ImageGallery. */
   .rich img {
-    @apply max-h-96 max-w-full rounded-panel bg-muted object-contain ring-1 ring-foreground/5;
+    @apply max-h-72 max-w-full cursor-zoom-in rounded-panel bg-muted object-contain ring-1 ring-foreground/5;
   }
   .rich img.ProseMirror-selectednode {
     @apply ring-3 ring-ring/50;

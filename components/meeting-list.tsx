@@ -1,12 +1,12 @@
 "use client"
 
-import { MoreHorizontalIcon, XCircleIcon } from "lucide-react"
+import { MoreHorizontalIcon, SendIcon, XCircleIcon } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import Link from "next/link"
 import { useOptimistic, useTransition } from "react"
 import { toast } from "sonner"
 
-import { cancelMeeting } from "@/app/actions"
+import { cancelMeeting, sendMeetingToSlack } from "@/app/actions"
 import { UserAvatar } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
 import { openNewMeeting } from "@/components/new-meeting-dialog"
@@ -42,6 +42,13 @@ export function MeetingList({
       else toast.success("Meeting cancelled")
     })
   }
+
+  const send = (m: MeetingItem) =>
+    start(async () => {
+      const res = await sendMeetingToSlack(m.id)
+      if (res.error) toast.error(res.error)
+      else toast.success("Sent to Slack")
+    })
 
   return (
     <>
@@ -95,7 +102,11 @@ export function MeetingList({
                     >
                       <MoreHorizontalIcon className="size-4" />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem onClick={() => send(m)}>
+                        <SendIcon />
+                        Send to Slack
+                      </DropdownMenuItem>
                       <DropdownMenuItem variant="destructive" onClick={() => cancel(m)}>
                         <XCircleIcon />
                         Cancel meeting

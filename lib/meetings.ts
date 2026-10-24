@@ -129,3 +129,38 @@ export function slackReminder(m: MeetingLike, tz: string, now: Date) {
 
 export const slackCancelled = (m: MeetingLike, by: string, tz: string) =>
   `✖️ *${esc(m.title)}* on ${day(m.startsAt, tz)}, ${hhmm(m.startsAt, tz)} was cancelled by ${esc(by)}`
+
+export type SlackMessage = { text: string; blocks: Record<string, unknown>[] }
+
+const mrkdwn = (text: string) => ({ type: "mrkdwn", text })
+
+/** The "Send to Slack" card: topic, description, when / organizer / attendees, Join. `text` is the notification fallback. */
+export function slackMeetingCard(
+  m: MeetingLike & { description: string | null },
+  by: string,
+  tz: string,
+  attendees: string[],
+): SlackMessage {
+  // Slack rejects a header over 150 characters; titles may be 200.
+  const title = m.title.length > 150 ? `${m.title.slice(0, 149)}…` : m.title
+  const who = attendees.slice(0, 6).join(", ") + (attendees.length > 6 ? ` +${attendees.length - 6} more` : "")
+  const url = joinUrl(m)
+  return {
+    text: slackCreated(m, by, tz),
+    blocks: [
+      { type: "header", text: { type: "plain_text", text: title } },
+      ...(m.description?.trim() ? [{ type: "section", text: mrkdwn(esc(m.description.trim())) }] : []),
+      {
+        type: "section",
+        fields: [
+          mrkdwn(`*When*\n${formatSlot(m, tz)}`),
+          mrkdwn(`*Organizer*\n${esc(by)}`),
+          ...(who ? [mrkdwn(`*Attendees*\n${esc(who)}`)] : []),
+        ],
+      },
+      ...(url
+        ? [{ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Join meeting" }, url, style: "primary" }] }]
+        : []),
+    ],
+  }
+}

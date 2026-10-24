@@ -1,0 +1,1 @@
+ALTER TABLE "meeting" ADD COLUMN "description" text;

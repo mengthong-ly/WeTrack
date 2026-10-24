@@ -2,6 +2,7 @@ import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
 import { projectProgress, workload } from "@/lib/dashboard"
 import type { TaskRow } from "@/lib/queries"
 import { type Health, health, type ProjectHealth } from "@/lib/schedule"
+import { attachmentSrc } from "@/lib/utils"
 
 // What the 3D overview (ProjectScene) draws. Plain JSON so it crosses the server/client line.
 export type SceneProject = {
@@ -13,6 +14,8 @@ export type SceneProject = {
   overdue: number
   progress: number
   health: ProjectHealth
+  /** Its logo's URL, engraved on its token in place of initials. */
+  logo: string | null
 }
 export type SceneTask = {
   id: string
@@ -69,7 +72,7 @@ const sceneTask = (t: TaskRow, today: string): SceneTask => ({
  * The workspace manages everything (`full` on): every project, 27 tasks a lane, everyone.
  */
 export function sceneData(
-  projects: { id: string; name: string; color: string }[],
+  projects: { id: string; name: string; color: string; logoId?: string | null }[],
   tasks: TaskRow[],
   members: { id: string; name: string; image: string | null }[],
   today: string,
@@ -93,6 +96,7 @@ export function sceneData(
         overdue: p.overdue,
         progress: p.progress,
         health: p.health,
+        logo: p.logoId ? attachmentSrc(p.logoId) : null,
       })),
     // listTasks is newest first, so each lane shows its most recently touched work.
     tasks: tasks
@@ -134,7 +138,7 @@ export const SAMPLE_SCENE: SceneData = (() => {
       ["Help centre", "#06b6d4", 4, 54, "at_risk"],
     ] as const
   ).map(([name, color, open, progress, health], i) => ({
-    id: `p${i + 1}`, name, color, open, total: open + 4, overdue: health === "off_track" ? 2 : 0, progress, health,
+    id: `p${i + 1}`, name, color, open, total: open + 4, overdue: health === "off_track" ? 2 : 0, progress, health, logo: null,
   }))
   const lanes: [TaskStatus, number][] = [
     ["not_started", 10],

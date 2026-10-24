@@ -78,6 +78,27 @@
       "when": 1792840559074,
       "tag": "0010_feedback_without_task",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792842254323,
+      "tag": "0011_r2_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792842261432,
+      "tag": "0012_drop_feedback_image_bytes",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792844727708,
+      "tag": "0013_meeting_description",
+      "breakpoints": true
     }
   ]
 }

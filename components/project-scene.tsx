@@ -1,6 +1,6 @@
 "use client"
 
-import { PauseIcon, PlayIcon, RotateCcwIcon, RotateCwIcon, RouteIcon, XIcon } from "lucide-react"
+import { LocateFixedIcon, PauseIcon, PlayIcon, RotateCcwIcon, RotateCwIcon, RouteIcon, XIcon } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 
@@ -23,7 +23,7 @@ export type { ScenePick, SceneMove }
  *   under the pointer rises and its line darkens.
  * - Flow: a tray per status with a block per task, and one real task riding a line.
  * - Team: a token per person raised on a stack of their open work.
- * Five cameras (Overview, Side, Top, Focus, Flight) and play/pause. Click anything to focus it.
+ * One isometric camera, recentred by a button, and play/pause. Click anything to focus it.
  * Status and health colours come from lib/labels.ts. hairline's own Hub (components/ui/hub) is
  * the poster while the scene loads, the fallback without WebGL, and the empty state.
  * The three.js engine is components/project-scene-engine.ts, loaded on demand.
@@ -34,15 +34,6 @@ const MODES: { key: Mode; label: string }[] = [
   { key: "flow", label: "Flow" },
   { key: "team", label: "Team" },
 ]
-const CAMS: { key: Cam; label: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "side", label: "Side" },
-  { key: "top", label: "Top" },
-  { key: "focus", label: "Focus" },
-  { key: "flight", label: "Flight" },
-]
-// Where work is managed, only the views that help find and move things.
-const WORK_CAMS = CAMS.filter((c) => c.key === "overview" || c.key === "top" || c.key === "focus")
 
 const glass = "bg-card/70 ring-1 ring-foreground/5 backdrop-blur"
 
@@ -294,11 +285,19 @@ export function ProjectScene({
               chrome === "page" ? "bottom-24 sm:bottom-28" : "bottom-3 sm:bottom-4"
             )}
           >
-            <PillTabs
-              id="scene-cam"
-              className="max-w-[calc(100%-3.25rem)]"
-              items={(calm ? WORK_CAMS : CAMS).map((c) => ({ key: c.key, label: c.label, active: cam === c.key, onSelect: () => (c.key === cam ? api.current?.home() : setCam(c.key)) }))}
-            />
+            <button
+              type="button"
+              onClick={() => {
+                setSelected(null)
+                api.current?.select(false)
+                if (cam === "overview") api.current?.home()
+                else setCam("overview")
+              }}
+              aria-label="Recentre the view"
+              className={cn("grid size-11 shrink-0 place-items-center rounded-full transition-[background-color,scale] hover:bg-card active:scale-95", glass)}
+            >
+              <LocateFixedIcon className="size-4" />
+            </button>
             {/* Turning is also Shift-drag, right-drag or two fingers; these make it findable. */}
             {([[-1, RotateCcwIcon, "Turn left"], [1, RotateCwIcon, "Turn right"]] as const).map(([dir, Icon, name]) => (
               <button

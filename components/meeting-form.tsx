@@ -12,6 +12,7 @@ import type { Prefill } from "@/components/new-meeting-dialog"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { MemberLite } from "@/lib/options"
 import { cn } from "@/lib/utils"
@@ -71,12 +72,14 @@ export function MeetingForm({
   members,
   meId,
   calendarConnected,
+  slackConnected,
   prefill,
   onDone,
 }: {
   members: MemberLite[]
   meId: string
   calendarConnected: boolean
+  slackConnected: boolean
   prefill: Prefill
   onDone: () => void
 }) {
@@ -91,6 +94,8 @@ export function MeetingForm({
   const [endAt, setEndAt] = useState(initial.end)
   const [people, setPeople] = useState<string[]>([meId])
   const [guests, setGuests] = useState("")
+  const [description, setDescription] = useState("")
+  const [toSlack, setToSlack] = useState(true)
 
   // Moving the start keeps the meeting's length.
   function onStart(next: string) {
@@ -116,6 +121,8 @@ export function MeetingForm({
         memberIds: people,
         guests,
         taskId: prefill.taskId ?? null,
+        description,
+        postToSlack: slackConnected && toSlack,
       })
       if (res.needsGoogle) return setConnect(true)
       if (res.error) return setError(res.error)
@@ -152,6 +159,16 @@ export function MeetingForm({
           placeholder="What's the meeting about?"
           aria-label="Meeting title"
           className="h-auto border-0 bg-transparent px-0 text-3xl font-light tracking-tight shadow-none focus-visible:ring-0 md:text-3xl dark:bg-transparent"
+        />
+        <Textarea
+          name="description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          maxLength={2000}
+          rows={1}
+          placeholder="Add a description or agenda"
+          aria-label="Meeting description"
+          className="mt-1 max-h-40 min-h-0 resize-none rounded-none border-0 bg-transparent px-0 py-1 text-muted-foreground shadow-none focus:text-foreground focus-visible:ring-0 dark:bg-transparent"
         />
       </div>
       <div className="mx-3 grid rounded-panel bg-muted/60 p-1.5 sm:grid-cols-2">
@@ -224,12 +241,24 @@ export function MeetingForm({
         </Prop>
       </div>
       {error && <p className="px-6 pt-3 text-sm text-destructive" role="alert">{error}</p>}
-      <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-5">
-        <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+      <div className="flex items-center gap-2 px-6 pt-5 pb-5">
+        <span className="mr-auto hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
           <kbd className={kbd}>⌘</kbd>
           <kbd className={kbd}>↵</kbd>
           to schedule
         </span>
+        {slackConnected && (
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={toSlack}
+            onClick={() => setToSlack((v) => !v)}
+            className="-ml-3 flex h-10 items-center gap-2 rounded-full px-3 sm:ml-0 text-sm text-muted-foreground outline-none transition-[background-color,color,scale] hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-97"
+          >
+            <Check on={toSlack} />
+            Post to Slack
+          </button>
+        )}
         <Button type="submit" size="lg" className="ml-auto h-10 gap-2 rounded-full px-5" disabled={pending}>
           {pending ? "Scheduling…" : "Schedule meeting"}
           {!pending && <ArrowUpIcon className="size-4" />}

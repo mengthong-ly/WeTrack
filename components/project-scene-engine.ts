@@ -10,7 +10,7 @@ import { formatDate, HEALTH, initials, PRIORITY, PROJECT_HEALTH, STATUS } from "
 import { MAX_PROJECTS, type SceneData } from "@/lib/scene"
 
 export type Mode = "hub" | "flow" | "team"
-export type Cam = "overview" | "side" | "top" | "focus" | "flight"
+export type Cam = "overview" | "focus"
 export type Selection = { title: string; meta: string; href: string | null }
 /** What was clicked in the scene: the workspace core, a project, a status station, a person or a task. */
 export type ScenePick = { kind: "workspace" | "project" | "status" | "member" | "task"; id: string }
@@ -657,7 +657,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     const h = 0.2 + Math.min(p.open, 12) * 0.05
     const tok = token(
       hub, t, 1.5, h, () => color,
-      { fill: () => color, ink: () => inkOn(color), text: initials(p.name), name: p.name },
+      { fill: () => color, ink: () => inkOn(color), text: initials(p.name), image: p.logo, name: p.name },
       (q) => q.health[p.health]
     )
     // A hairline from the core to the token; it darkens while the token is up. The outer ring's
@@ -835,7 +835,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
   const goalPos = new THREE.Vector3()
   const goalTarget = new THREE.Vector3(0, 0.4, 0)
   const viewDir = new THREE.Vector3(1, 0.85, 1.1).normalize()
-  let animating = true, flightT = 0, runT = 0
+  let animating = true, runT = 0
   let spin = 0 // radians of a turn still to go
   const fit = () =>
     (layers[mode].radius * 1.05) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect)
@@ -852,9 +852,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       return
     }
     goalTarget.set(0, CENTER_Y, 0)
-    if (cam === "side") goalPos.set(13, 5, 20).normalize().multiplyScalar(d).add(goalTarget)
-    else if (cam === "top") goalPos.set(0.01, d, 0.8).add(goalTarget)
-    else goalPos.copy(viewDir).multiplyScalar(d).add(goalTarget)
+    goalPos.copy(viewDir).multiplyScalar(d).add(goalTarget)
   }
 
   let width = 1, height = 1, sized = false
@@ -1052,7 +1050,6 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     const ease = (rate: number) => (reduce ? 1 : 1 - Math.exp(-dt * rate))
     if (playing) {
       simT += dt
-      flightT += dt
       runT = (runT + dt / 9) % 1
     }
 
@@ -1118,21 +1115,16 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       if (bar) bar.style.transform = `scaleX(${runT})`
     }
 
-    // Camera: ease to the goal; Flight circles; Focus in Flow follows the task.
-    if (cam === "flight" && playing && !dragging) {
-      const a = flightT * 0.12, d = fit()
-      goalTarget.set(0, CENTER_Y, 0)
-      goalPos.set(Math.sin(a + 0.55) * d * 0.83, d * (0.5 + Math.sin(a * 0.7) * 0.09), Math.cos(a + 0.55) * d * 0.83).add(goalTarget)
-      animating = true
-    } else if (followsRunner() && playing && !dragging) {
+    // Camera: ease to the goal; Focus in Flow follows the task.
+    if (followsRunner() && playing && !dragging) {
       setGoal()
       animating = true
     }
     if (animating && !dragging) {
-      const k = ease(cam === "flight" ? 2.2 : 3)
+      const k = ease(3)
       camera.position.lerp(goalPos, k)
       controls.target.lerp(goalTarget, k)
-      if (cam !== "flight" && !followsRunner() && camera.position.distanceTo(goalPos) < 0.015 && controls.target.distanceTo(goalTarget) < 0.015)
+      if (!followsRunner() && camera.position.distanceTo(goalPos) < 0.015 && controls.target.distanceTo(goalTarget) < 0.015)
         animating = false
     }
     // A turn from the buttons: the rest of it eases out around the point the view looks at.
@@ -1192,7 +1184,6 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
         mode = next.mode
         if (selected && !layers[mode].items.includes(selected)) selected = null
       }
-      if (next.cam !== cam && next.cam === "flight") flightT = 0
       cam = next.cam
       playing = next.playing
       aim = true

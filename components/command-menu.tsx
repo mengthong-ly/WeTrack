@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils"
 
 // Fired by C, the dock's "+", ⌘K and panels; NewTaskHost opens the New task page with the detail as its preset.
 export const NEW_TASK_EVENT = "wetrack:new-task"
+// The round search buttons in the rail and dock open the one CommandMenu with this.
+export const SEARCH_EVENT = "wetrack:search"
 // Fields a caller can fill in before the page opens (a priority group's "Add task", a 3D station's "New task").
 export type NewTaskPreset = { priority?: TaskPriority; status?: TaskStatus; projectId?: string; assigneeId?: string }
 export function newTaskHref(preset: NewTaskPreset = {}) {
@@ -77,8 +79,13 @@ export function CommandMenu({
         setOpen((o) => !o)
       }
     }
+    const onSearch = () => setOpen(true)
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    window.addEventListener(SEARCH_EVENT, onSearch)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener(SEARCH_EVENT, onSearch)
+    }
   }, [])
 
   const items = useMemo<Item[]>(() => {
@@ -158,20 +165,6 @@ export function CommandMenu({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Search and commands"
-        className="flex h-11 items-center gap-2.5 rounded-full bg-card/70 px-3.5 text-sm text-muted-foreground ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card hover:text-foreground sm:w-56 sm:px-4"
-      >
-        <SearchIcon className="size-4 shrink-0" />
-        <span className="hidden flex-1 text-left sm:inline">Search</span>
-        <span className="hidden items-center gap-1 sm:flex">
-          <kbd className={kbd}>⌘</kbd>
-          <kbd className={kbd}>K</kbd>
-        </span>
-      </button>
-
       <Dialog
         open={open}
         onOpenChange={(o) => {

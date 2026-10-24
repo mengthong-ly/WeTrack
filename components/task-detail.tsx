@@ -31,6 +31,7 @@ import { toast } from "sonner"
 import { addComment, addSubtask, createTask, deleteTask, updateTask } from "@/app/actions"
 import { Crumbs, LoadMore, ProjectDot, StatusText, UserAvatar } from "@/components/bits"
 import { FocusLayout, PanelToggle, SideAction, SideProp, SideSection, Tuned } from "@/components/editor-tools"
+import { ImageGallery } from "@/components/image-gallery"
 import { MeetingList } from "@/components/meeting-list"
 import { spring } from "@/components/motion-bits"
 import { openNewMeeting } from "@/components/new-meeting-dialog"
@@ -243,6 +244,7 @@ export function TaskDetail({
         </div>
       </div>
 
+      <ImageGallery>
       <FocusLayout
         contents={task.family.length > 1 && <Contents family={task.family} current={task.id} />}
         side={
@@ -345,6 +347,7 @@ export function TaskDetail({
           )}
         </article>
       </FocusLayout>
+      </ImageGallery>
     </div>
   )
 }

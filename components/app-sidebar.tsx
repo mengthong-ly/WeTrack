@@ -6,7 +6,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Suspense, useRef } from "react"
 
-import { NAV } from "@/components/app-dock"
+import { NAV, SearchButton } from "@/components/app-dock"
 import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { spring, useHoldHoverInTransitions } from "@/components/motion-bits"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils"
 
 // Desktop navigation (lg+): the dock stood on its end. A floating glass rail of the six places, icons only
 // with their names in tooltips, and the dark "+" for a new task under it. Phones use the dock.
-// The links are static, so the rail is in every prefetched shell.
-export function SideRail() {
+// The links are static, so the rail is in every prefetched shell. Search and `account` sit at its foot (no header).
+export function SideRail({ account }: { account?: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   useHoldHoverInTransitions(ref)
   return (
@@ -48,6 +48,10 @@ export function SideRail() {
           </kbd>
         </TooltipContent>
       </Tooltip>
+      <div className="mt-3 flex flex-col items-center gap-2">
+        <SearchButton side="right" />
+        {account}
+      </div>
     </div>
   )
 }

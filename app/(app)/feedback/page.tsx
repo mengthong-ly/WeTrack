@@ -9,7 +9,7 @@ import { requireMember } from "@/lib/session"
 
 export const metadata: Metadata = { title: "Feedback" }
 
-// Renders the page of points the URL asks for (?who=, ?fixed=1, ?show=); FeedbackBoard fetches /api/feedback when
+// Renders the page of feedback the URL asks for (?who=, ?fixed=1, ?show=); FeedbackBoard fetches /api/feedback when
 // it changes. With no ?who=, it opens on "For me" when there's something to fix, otherwise the whole team.
 export default async function FeedbackPage({ searchParams }: PageProps<"/feedback">) {
   const me = await requireMember()
@@ -26,7 +26,7 @@ export default async function FeedbackPage({ searchParams }: PageProps<"/feedbac
             Feedback
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Notes and screenshots on work. Tick a point once it&apos;s fixed.
+            Notes and screenshots on work. Tick it once it&apos;s fixed.
           </p>
         </Reveal>
         <Suspense>

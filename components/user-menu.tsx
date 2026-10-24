@@ -21,22 +21,24 @@ export function UserMenu({
   orgName,
   googleEnabled,
   calendarConnected,
+  side,
 }: {
   user: { name: string; email: string; image?: string | null }
   orgName: string
   googleEnabled: boolean
   calendarConnected: boolean
+  side?: "top" | "right"
 }) {
   const { resolvedTheme, setTheme } = useTheme()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Account"
-        className="grid size-11 place-items-center rounded-full bg-card/70 ring-1 ring-foreground/5 backdrop-blur transition hover:bg-card"
+        className="grid size-11 place-items-center rounded-full bg-card/85 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl transition-[scale] active:scale-95"
       >
         <UserAvatar user={user} className="size-8 ring-0" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent side={side} align="end" sideOffset={10} className="w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="flex flex-col">
             <span className="text-sm font-medium text-foreground">

@@ -33,8 +33,8 @@ export function summarize(tasks: TaskRow[], today: string) {
 }
 
 // Projects with no tasks are left out unless `keepEmpty` (the 3D workspace shows new, empty projects).
-export function projectProgress(
-  projects: { id: string; name: string; color: string }[],
+export function projectProgress<P extends { id: string; name: string; color: string }>(
+  projects: P[],
   tasks: TaskRow[],
   today: string,
   { keepEmpty = false } = {}

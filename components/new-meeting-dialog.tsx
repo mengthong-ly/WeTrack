@@ -26,11 +26,13 @@ export function NewMeetingDialog({
   members,
   meId,
   calendarConnected,
+  slackConnected,
   googleEnabled,
 }: {
   members: MemberLite[]
   meId: string
   calendarConnected: boolean
+  slackConnected: boolean
   googleEnabled: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -68,6 +70,7 @@ export function NewMeetingDialog({
             members={members}
             meId={meId}
             calendarConnected={calendarConnected}
+            slackConnected={slackConnected}
             prefill={prefill}
             onDone={() => setOpen(false)}
           />

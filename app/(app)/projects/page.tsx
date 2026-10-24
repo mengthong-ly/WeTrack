@@ -2,13 +2,14 @@ import { MessageSquareTextIcon } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 
-import { HealthBadge, ProjectDot } from "@/components/bits"
+import { HealthBadge, ProjectMark } from "@/components/bits"
 import { CountUp, PageTransition, ProgressBar, Reveal } from "@/components/motion-bits"
 import { NewProject } from "@/components/new-project"
 import { formatDate, HEALTH } from "@/lib/labels"
 import { listProjects, listTasks, unreportedCounts } from "@/lib/queries"
 import { effectiveProgress, health, projectHealth, todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
+import { attachmentSrc } from "@/lib/utils"
 import { byDeadline } from "@/lib/task-view"
 
 export const metadata: Metadata = { title: "Projects" }
@@ -39,8 +40,8 @@ export default async function ProjectsPage() {
             return (
               <Reveal key={p.id} index={i + 1}>
                 <div className="relative flex h-full min-h-48 flex-col rounded-tile bg-card p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                  <div className="flex items-center gap-2">
-                    <ProjectDot color={p.color} className="size-2.5" />
+                  <div className="flex items-center gap-2.5">
+                    <ProjectMark color={p.color} logo={p.logoId && attachmentSrc(p.logoId)} className="size-8" />
                     <Link href={`/tasks?project=${p.id}`} className="min-w-0 truncate text-lg after:absolute after:inset-0 after:rounded-tile">
                       {p.name}
                     </Link>

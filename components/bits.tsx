@@ -48,6 +48,15 @@ export function ProjectDot({ color, className }: { color: string; className?: st
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", className)} style={{ background: color }} />
 }
 
+// A project's logo (sized by `className`) when it has one, otherwise its dot.
+export function ProjectMark({ color, logo, className }: { color: string; logo: string | null; className?: string }) {
+  if (!logo) return <ProjectDot color={color} className="size-2.5" />
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it
+    <img src={logo} alt="" className={cn("shrink-0 rounded-full bg-card object-contain ring-1 ring-foreground/5", className)} />
+  )
+}
+
 export function HealthBadge({ health, className }: { health: ProjectHealth; className?: string }) {
   const h = PROJECT_HEALTH[health]
   return (
