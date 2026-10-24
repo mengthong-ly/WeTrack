@@ -1,43 +1,64 @@
 "use client"
 
+import type { Editor, JSONContent } from "@tiptap/react"
 import {
+  CircleCheckIcon,
+  ChevronRightIcon,
+  CircleDashedIcon,
+  ClockIcon,
   ImagePlusIcon,
   ListChecksIcon,
   MoreHorizontalIcon,
+  PenLineIcon,
   PlusIcon,
+  RotateCcwIcon,
   Trash2Icon,
   UserIcon,
-  XIcon,
 } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
-import { useOptimistic, useState, useTransition } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import {
   createFeedback,
   deleteFeedback,
   setFeedbackResolved,
+  updateFeedback,
 } from "@/app/actions"
-import { ProjectDot, UserAvatar } from "@/components/bits"
+import { Crumbs, LoadMore, ProjectDot, UserAvatar } from "@/components/bits"
+import {
+  EditorSheet,
+  FocusLayout,
+  PanelToggle,
+  SideAction,
+  SideProp,
+  SideSection,
+  Tuned,
+} from "@/components/editor-tools"
 import { Reveal, spring } from "@/components/motion-bits"
 import { Pick } from "@/components/pick"
 import { PillTabs } from "@/components/pill-tabs"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Textarea } from "@/components/ui/textarea"
+import { FEEDBACK_PAGE, feedbackKey, type FeedbackWho, readFeedbackParams } from "@/lib/paging"
+import { uploadTo } from "@/lib/image"
+import { type ListPage, useServerList } from "@/lib/use-server-list"
+import { plainText } from "@/lib/markdown"
 import { cn } from "@/lib/utils"
+
+// Tiptap loads after the page; until then read-only notes show as written.
+const RichText = dynamic(() =>
+  import("@/components/rich-text").then((m) => m.RichText)
+)
 
 type Person = { id: string; name: string; image: string | null }
 export type FeedbackItem = {
@@ -46,7 +67,7 @@ export type FeedbackItem = {
   hasImage: boolean
   resolved: boolean
   when: string
-  task: { id: string; title: string; color: string; project: string }
+  task: { id: string; title: string; color: string; project: string } | null
   author: Person | null
   recipient: Person | null
   canDelete: boolean
@@ -55,53 +76,63 @@ export type FeedbackTask = {
   id: string
   title: string
   color: string
-  assignee: string | null
+  assigneeId: string | null
 }
 
 type Who = "mine" | "given" | "all"
 const EMPTY: Record<Who, string> = {
   mine: "Nothing to fix. Feedback on your tasks shows up here.",
-  given: "You haven't given feedback yet. Pick a task and paste a screenshot.",
+  given: "You haven't given feedback yet. Pick someone and paste a screenshot.",
   all: "No open feedback. Give some with the button above.",
 }
 
+// Tab, Open / Fixed and how many points are shown live in the URL (?who=, ?fixed=1, ?show=), changed through the
+// History API like the Tasks filters; useServerList fetches the points for the new URL.
+function setParam(key: string, value: string | null, { replace = false } = {}) {
+  const q = new URLSearchParams(window.location.search)
+  if (value) q.set(key, value)
+  else q.delete(key)
+  if (key !== "show") q.delete("show")
+  window.history[replace ? "replaceState" : "pushState"](null, "", `?${q}`)
+}
+
 export function FeedbackBoard({
-  items,
-  tasks,
+  initial,
+  fallback,
   meId,
 }: {
-  items: FeedbackItem[]
-  tasks: FeedbackTask[]
+  initial: ListPage<FeedbackItem> & { open: Record<FeedbackWho, number> }
+  fallback: FeedbackWho // the tab with no ?who=: "For me" when there's something to fix
   meId: string
 }) {
+  const params = readFeedbackParams(useSearchParams(), fallback)
+  const { who, fixed } = params
+  const { rows, total, open, pending, appending } = useServerList(initial, feedbackKey(params), "/api/feedback")
   const [optimistic, setResolved] = useOptimistic(
-    items,
+    rows,
     (state, { id, resolved }: { id: string; resolved: boolean }) =>
       state.map((i) => (i.id === id ? { ...i, resolved } : i))
   )
-  // Start on "For me" when there's something to fix, otherwise show the whole team.
-  const [who, setWho] = useState<Who>(() =>
-    items.some((i) => i.recipient?.id === meId && !i.resolved) ? "mine" : "all"
-  )
-  const [fixed, setFixed] = useState(false)
-  const [composing, setComposing] = useState(false)
   const [viewing, setViewing] = useState<FeedbackItem | null>(null)
   const [, start] = useTransition()
 
-  const inWho = (w: Who) => (i: FeedbackItem) =>
-    w === "mine"
-      ? i.recipient?.id === meId
-      : w === "given"
-        ? i.author?.id === meId
-        : true
-  const open = (w: Who) =>
-    optimistic.filter((i) => inWho(w)(i) && !i.resolved).length
-  const shown = optimistic.filter((i) => inWho(who)(i) && i.resolved === fixed)
-  // Grouped by task, newest feedback first; points inside a task read in the order they were written.
-  const byTask = new Map<string, FeedbackItem[]>()
-  for (const i of shown)
-    byTask.set(i.task.id, [i, ...(byTask.get(i.task.id) ?? [])])
-  const groups = [...byTask.values()]
+  // Pin the first tab into the URL, so the board stays on it when a fix changes what the default would be.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has("who")) setParam("who", fallback, { replace: true })
+  }, [fallback])
+  const setWho = (w: Who) => setParam("who", w)
+  const setFixed = (f: boolean) => setParam("fixed", f ? "1" : null)
+
+  // A point ticked fixed leaves the Open list at once; the server's next page agrees.
+  const shown = optimistic.filter((i) => i.resolved === fixed)
+  // Grouped by task (points without one, by who they're for), newest feedback first; points inside a group read in
+  // the order they were written.
+  const byGroup = new Map<string, FeedbackItem[]>()
+  for (const i of shown) {
+    const key = i.task?.id ?? `for:${i.recipient?.id}`
+    byGroup.set(key, [i, ...(byGroup.get(key) ?? [])])
+  }
+  const groups = [...byGroup.entries()]
 
   function resolve(item: FeedbackItem, resolved: boolean) {
     start(async () => {
@@ -136,19 +167,19 @@ export function FeedbackBoard({
           items={[
             {
               key: "mine",
-              label: <>For me {count(open("mine"))}</>,
+              label: <>For me {count(open.mine)}</>,
               active: who === "mine",
               onSelect: () => setWho("mine"),
             },
             {
               key: "given",
-              label: <>From me {count(open("given"))}</>,
+              label: <>From me {count(open.given)}</>,
               active: who === "given",
               onSelect: () => setWho("given"),
             },
             {
               key: "all",
-              label: <>Everyone {count(open("all"))}</>,
+              label: <>Everyone {count(open.all)}</>,
               active: who === "all",
               onSelect: () => setWho("all"),
             },
@@ -173,7 +204,8 @@ export function FeedbackBoard({
           ]}
         />
         <Button
-          onClick={() => setComposing(true)}
+          nativeButton={false}
+          render={<Link href="/feedback/new" />}
           className="h-11 gap-2 rounded-full px-5 transition-[background-color,scale] active:scale-95 sm:ml-auto"
         >
           <PlusIcon className="size-4" />
@@ -183,14 +215,17 @@ export function FeedbackBoard({
 
       <Reveal
         index={2}
-        className="flex flex-col gap-6 rounded-sheet bg-card p-3 shadow-sm sm:p-4"
+        className={cn(
+          "flex flex-col gap-6 rounded-sheet bg-card p-3 shadow-sm transition-opacity duration-200 sm:p-4",
+          pending && !appending && "opacity-60"
+        )}
       >
         <AnimatePresence mode="popLayout" initial={false}>
-          {groups.map((points) => {
+          {groups.map(([key, points]) => {
             const { task, recipient } = points[0]
             return (
               <motion.section
-                key={task.id}
+                key={key}
                 layout
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -203,14 +238,20 @@ export function FeedbackBoard({
                 className="flex flex-col gap-2.5"
               >
                 <header className="flex min-w-0 items-center gap-2 px-3 pt-2">
-                  <ProjectDot color={task.color} className="size-2.5" />
-                  <Link
-                    href={`/tasks/${task.id}`}
-                    className="min-w-0 truncate text-lg hover:underline"
-                    title={task.project}
-                  >
-                    {task.title}
-                  </Link>
+                  {task ? (
+                    <>
+                      <ProjectDot color={task.color} className="size-2.5" />
+                      <Link
+                        href={`/tasks/${task.id}`}
+                        className="min-w-0 truncate text-lg hover:underline"
+                        title={task.project}
+                      >
+                        {task.title}
+                      </Link>
+                    </>
+                  ) : (
+                    <span className="min-w-0 truncate text-lg">General</span>
+                  )}
                   <span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     <span className="max-sm:sr-only">
                       For{" "}
@@ -247,13 +288,13 @@ export function FeedbackBoard({
             {fixed ? "Fixed points show up here." : EMPTY[who]}
           </p>
         )}
+        <LoadMore
+          left={total - rows.length}
+          pending={appending}
+          onClick={() => setParam("show", String(params.show + FEEDBACK_PAGE), { replace: true })}
+          className="bg-muted/60 ring-0 backdrop-blur-none hover:bg-muted"
+        />
       </Reveal>
-
-      <GiveFeedbackDialog
-        open={composing}
-        onOpenChange={setComposing}
-        tasks={tasks}
-      />
 
       <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
         <DialogContent className="gap-3 rounded-tile bg-card p-2 sm:max-w-5xl">
@@ -267,9 +308,12 @@ export function FeedbackBoard({
                 className="max-h-[80dvh] w-full rounded-panel bg-muted object-contain"
               />
               {viewing.body && (
-                <p className="px-3 pb-2 text-sm whitespace-pre-wrap text-muted-foreground">
-                  {viewing.body}
-                </p>
+                <RichText
+                  editable={false}
+                  defaultValue={viewing.body}
+                  className="px-3 pb-2"
+                  contentClassName="text-sm text-muted-foreground"
+                />
               )}
             </>
           )}
@@ -298,15 +342,22 @@ function Point({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
       transition={spring}
-      className="flex gap-3 rounded-row bg-muted/60 py-3 pr-2 pl-3 sm:pl-4"
+      className="group relative flex gap-3 rounded-row bg-muted/60 py-3 pr-2 pl-3 transition-[background-color,scale] duration-150 ease-out hover:bg-muted has-[[data-row-link]:active]:scale-[0.99] sm:pl-4"
     >
+      {/* The whole row opens the point, like a TaskCard; the controls below sit above this link (z-10). */}
+      <Link
+        href={`/feedback/${item.id}`}
+        data-row-link
+        aria-label="Open feedback"
+        className="absolute inset-0 rounded-row outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      />
       {/* Round checkbox, as on TaskCard. */}
       <button
         type="button"
         onClick={() => onResolve(item, !done)}
         aria-label={done ? "Mark as not fixed" : "Mark as fixed"}
         aria-pressed={done}
-        className="relative mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground/30 transition-colors hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        className="relative z-10 mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground/30 transition-colors hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
       >
         <motion.span
           className="absolute inset-0 rounded-full bg-foreground"
@@ -333,15 +384,15 @@ function Point({
       </button>
       <div className="min-w-0 flex-1">
         {item.body && (
-          <p
-            className={cn(
-              "text-base whitespace-pre-wrap",
+          <RichText
+            editable={false}
+            defaultValue={item.body}
+            contentClassName={cn(
+              "text-base",
               done &&
                 "text-muted-foreground line-through decoration-foreground/30"
             )}
-          >
-            {item.body}
-          </p>
+          />
         )}
         {item.hasImage && (
           <button
@@ -349,7 +400,7 @@ function Point({
             onClick={() => onView(item)}
             aria-label="Open screenshot"
             className={cn(
-              "block w-full max-w-lg cursor-zoom-in overflow-hidden rounded-xl bg-card ring-1 ring-foreground/5 transition-[scale,opacity] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[0.98]",
+              "relative z-10 block w-full max-w-lg cursor-zoom-in overflow-hidden rounded-xl bg-card ring-1 ring-foreground/5 transition-[scale,opacity] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-[0.98]",
               item.body && "mt-2.5",
               done && "opacity-60"
             )}
@@ -367,18 +418,27 @@ function Point({
           {item.author && (
             <UserAvatar user={item.author} className="size-5 ring-0" />
           )}
-          {item.author?.name ?? "Former member"} · {item.when}
+          {item.author?.name ?? "Former member"} ·{" "}
+          {item.when}
         </p>
       </div>
+      <ChevronRightIcon
+        aria-hidden
+        className="mt-1 size-4 shrink-0 -translate-x-1 text-muted-foreground opacity-0 transition-[opacity,translate] duration-150 ease-out group-hover:translate-x-0 group-hover:opacity-100 max-sm:hidden"
+      />
       {item.canDelete && (
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Feedback actions"
-            className="grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-[background-color,color,scale] outline-none hover:bg-card hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95"
+            className="relative z-10 grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-[background-color,color,scale] outline-none hover:bg-card hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95"
           >
             <MoreHorizontalIcon className="size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem render={<Link href={`/feedback/${item.id}`} />}>
+              <PenLineIcon />
+              Edit point
+            </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               onClick={() => onDelete(item)}
@@ -393,163 +453,356 @@ function Point({
   )
 }
 
+// ---------- One point ----------
+
+// A point's own page (/feedback/[id]): the note and full-size screenshot as one document, who and what it's about in
+// the side panel, and the dark pill to mark it fixed (or reopen it).
+export function FeedbackDetail({ item }: { item: FeedbackItem }) {
+  const router = useRouter()
+  const [resolved, setResolved] = useOptimistic(item.resolved)
+  const [pending, start] = useTransition()
+  const title = item.body ? plainText(item.body).slice(0, 80) : "Screenshot"
+  const firstName = (p: Person | null) => p?.name.split(" ")[0]
+
+  function resolve(next: boolean) {
+    start(async () => {
+      setResolved(next)
+      const res = await setFeedbackResolved(item.id, next)
+      if (res.error) toast.error(res.error)
+      else if (next) toast.success("Marked as fixed", { action: { label: "Undo", onClick: () => resolve(false) } })
+    })
+  }
+
+  // Edit in place: saved when the editor loses focus, and only if the text changed.
+  const saved = useRef(item.body?.trim() ?? "")
+  function save(markdown: string) {
+    const next = markdown.trim()
+    if (next === saved.current) return
+    start(async () => {
+      const res = await updateFeedback(item.id, next)
+      if (res.error) toast.error(res.error)
+      else {
+        saved.current = next
+        toast.success("Feedback updated")
+      }
+    })
+  }
+
+  function remove() {
+    if (!confirm("Delete this point? This can't be undone.")) return
+    start(async () => {
+      const res = await deleteFeedback(item.id)
+      if (res.error) return void toast.error(res.error)
+      toast.success("Feedback deleted")
+      router.replace("/feedback")
+    })
+  }
+
+  return (
+    <div data-focus className="flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-2">
+        <Crumbs onBack={() => router.back()} trail={[{ href: "/feedback", label: "Feedback" }]} current={title} />
+        <div className="flex shrink-0 items-center gap-2">
+          <PanelToggle />
+          <Button
+            type="button"
+            variant={resolved ? "secondary" : "default"}
+            onClick={() => resolve(!resolved)}
+            disabled={pending}
+            className="h-11 gap-2 rounded-full px-5 transition-[background-color,scale] active:scale-95"
+          >
+            {resolved ? <RotateCcwIcon className="size-4" /> : <CircleCheckIcon className="size-4" />}
+            {resolved ? "Reopen" : "Mark as fixed"}
+          </Button>
+        </div>
+      </div>
+
+      <FocusLayout
+        side={
+          <>
+            <SideSection label="Feedback">
+              <SideProp icon={UserIcon} label="For">
+                <Person person={item.recipient} fallback="Nobody yet" />
+              </SideProp>
+              <SideProp icon={PenLineIcon} label="From">
+                <Person person={item.author} fallback="Former member" />
+              </SideProp>
+              <SideProp icon={ListChecksIcon} label="Task">
+                {item.task ? (
+                  <Link href={`/tasks/${item.task.id}`} className="flex min-w-0 items-center gap-2 px-2.5 hover:underline">
+                    <ProjectDot color={item.task.color} />
+                    <span className="truncate">{item.task.title}</span>
+                  </Link>
+                ) : (
+                  <span className="px-2.5 text-muted-foreground">No task</span>
+                )}
+              </SideProp>
+              <SideProp icon={resolved ? CircleCheckIcon : CircleDashedIcon} label="Status">
+                <span className={cn("px-2.5", !resolved && "text-muted-foreground")}>{resolved ? "Fixed" : "Open"}</span>
+              </SideProp>
+              <SideProp icon={ClockIcon} label="Given">
+                <span className="px-2.5">{item.when}</span>
+              </SideProp>
+            </SideSection>
+            {item.canDelete && (
+              <SideSection label="Actions">
+                <SideAction icon={Trash2Icon} onClick={remove} disabled={pending} destructive>
+                  Delete point
+                </SideAction>
+              </SideSection>
+            )}
+          </>
+        }
+      >
+        {/* The point as one document: who it's for in a quiet line, the note, then the screenshot at full size. */}
+        <article className="flex flex-col rounded-tile bg-card px-5 py-6 shadow-sm sm:px-10 sm:py-9">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <span>
+              {firstName(item.author) ?? "Someone"} for {item.recipient ? firstName(item.recipient) : "nobody yet"}
+            </span>
+            {item.task && (
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <ProjectDot color={item.task.color} />
+                <span className="truncate">{item.task.title}</span>
+              </span>
+            )}
+            <span className={resolved ? "text-foreground" : undefined}>{resolved ? "Fixed" : "Open"}</span>
+          </p>
+          <div className="my-5 h-px bg-foreground/5" />
+          {(item.body || item.canDelete) && (
+            <Tuned>
+              <RichText
+                editable={item.canDelete}
+                defaultValue={item.body}
+                placeholder="Add details, or type / for headings, checklists and images…"
+                aria-label="Feedback note"
+                onBlur={save}
+                onImage={uploadTo}
+                contentClassName={cn("text-base", resolved && "text-muted-foreground")}
+              />
+            </Tuned>
+          )}
+          {item.hasImage && (
+            <a
+              href={`/api/feedback/${item.id}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open screenshot full size"
+              className={cn(
+                "block cursor-zoom-in overflow-hidden rounded-panel bg-muted ring-1 ring-foreground/5 transition-[scale] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-99",
+                item.body && "mt-6"
+              )}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it */}
+              <img src={`/api/feedback/${item.id}`} alt="Screenshot" className="w-full" />
+            </a>
+          )}
+        </article>
+      </FocusLayout>
+    </div>
+  )
+}
+
+function Person({ person, fallback }: { person: Person | null; fallback: string }) {
+  if (!person) return <span className="px-2.5 text-muted-foreground">{fallback}</span>
+  return (
+    <span className="flex min-w-0 items-center gap-2 px-2.5">
+      <UserAvatar user={person} className="size-5 ring-0" />
+      <span className="truncate">{person.name}</span>
+    </span>
+  )
+}
+
 // ---------- Composer ----------
 
-type Draft = {
-  key: number
-  body: string
-  image: Blob | null
-  preview: string | null
+// The composer is one page: each line or list item is a point, a heading goes with the point under it, and a
+// screenshot belongs to the line above it (text after a screenshot starts the next point). Screenshots stay in the
+// browser (blob: URLs) until Send, then go up with their point as before.
+type Block = {
+  type?: string
+  attrs?: Record<string, string>
+  content?: Block[]
 }
-let nextKey = 0
-const blank = (): Draft => ({
-  key: nextKey++,
-  body: "",
-  image: null,
-  preview: null,
-})
+type Point = { nodes: Block[]; image?: Blob }
+const LISTS = new Set(["bulletList", "orderedList", "taskList"])
 
-// Screenshots are shrunk in the browser (at most 2000px wide, WebP or JPEG) so a send stays small.
-async function shrink(file: File): Promise<Blob> {
-  if (file.type === "image/gif") return file
-  try {
-    const bitmap = await createImageBitmap(file)
-    const scale = Math.min(1, 2000 / bitmap.width)
-    const canvas = document.createElement("canvas")
-    canvas.width = Math.round(bitmap.width * scale)
-    canvas.height = Math.round(bitmap.height * scale)
-    canvas
-      .getContext("2d")!
-      .drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-    for (const type of ["image/webp", "image/jpeg"]) {
-      const blob = await new Promise<Blob | null>((r) =>
-        canvas.toBlob(r, type, 0.85)
-      )
-      if (blob?.type === type) return blob
+function toPoints(editor: Editor, images: Map<string, Blob>) {
+  const points: Point[] = []
+  let current: Point | null = null
+  let titled = false // the last block was a heading, so the next one joins its point
+  const take = (node: Block) => {
+    if (node.type === "image") {
+      const blob = images.get(node.attrs?.src ?? "")
+      const last = points.at(-1)
+      if (blob && last && !last.image) last.image = blob
+      else if (blob) points.push({ nodes: [], image: blob })
+      current = null
+      titled = false
+    } else if (node.type !== "paragraph" || node.content?.length) {
+      if (!current) points.push((current = { nodes: [] }))
+      current.nodes.push(node)
+      titled = node.type === "heading"
     }
-  } catch {}
-  return file
+  }
+  for (const node of (editor.getJSON().content ?? []) as Block[]) {
+    for (const part of LISTS.has(node.type ?? "")
+      ? (node.content ?? [])
+      : [{ content: [node] }]) {
+      if (!titled) current = null
+      part.content?.forEach(take)
+    }
+  }
+  return points.map((p) => ({
+    body: p.nodes.length
+      ? (editor.markdown
+          ?.serialize({ type: "doc", content: p.nodes as JSONContent[] })
+          .trim() ?? "")
+      : "",
+    image: p.image,
+  }))
 }
 
-const imageIn = (data: DataTransfer | null) =>
-  [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"))
-const propPick =
-  "ml-0 min-w-0 flex-1 justify-between px-2.5 hover:bg-card dark:bg-transparent dark:hover:bg-card *:data-[slot=select-value]:min-w-0"
+// What you wrote stays if you leave the page before sending (until a reload); Send clears it. Only
+// ever written in the browser, so the server's copy of this module stays empty.
+const saved = { taskId: "", recipientId: "", draft: "", images: new Map<string, Blob>() }
+const NO_TASK = "none"
 
-function GiveFeedbackDialog({
-  open,
-  onOpenChange,
+// The Give feedback page: pick who it's for (or a task, which picks its assignee), then write one page of points.
+export function GiveFeedback({
   tasks,
+  people,
+  taskId: linked,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
   tasks: FeedbackTask[]
+  people: Person[]
+  /** From `?task=`, e.g. the task page's "Give feedback" button. */
+  taskId?: string
 }) {
-  const [taskId, setTaskId] = useState(tasks[0]?.id ?? "")
-  const [drafts, setDrafts] = useState<Draft[]>(() => [blank()])
-  const [over, setOver] = useState<number | null>(null)
+  const router = useRouter()
+  const [taskId, setTaskId] = useState(linked ?? saved.taskId)
+  const [recipientId, setRecipientId] = useState(saved.recipientId)
+  const [count, setCount] = useState(0)
+  const editor = useRef<Editor>(null)
   const [error, setError] = useState<string>()
   const [pending, start] = useTransition()
   const task = tasks.find((t) => t.id === taskId)
+  // A task's feedback goes to its assignee; otherwise to whoever is picked.
+  const forId = task ? task.assigneeId : recipientId
+  const forName = people.find((p) => p.id === forId)?.name
 
-  const edit = (key: number, patch: Partial<Draft>) =>
-    setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)))
-  async function attach(key: number, file: File | undefined) {
-    if (!file?.type.startsWith("image/")) return
-    const image = await shrink(file)
-    setDrafts((ds) =>
-      ds.map((d) => {
-        if (d.key !== key) return d
-        if (d.preview) URL.revokeObjectURL(d.preview)
-        return { ...d, image, preview: URL.createObjectURL(image) }
-      })
-    )
-  }
-  function detach(d: Draft) {
-    if (d.preview) URL.revokeObjectURL(d.preview)
-    edit(d.key, { image: null, preview: null })
-  }
-  function drop(d: Draft) {
-    if (d.preview) URL.revokeObjectURL(d.preview)
-    setDrafts((ds) => ds.filter((x) => x.key !== d.key))
+  function ready(e: Editor) {
+    editor.current = e
+    const sync = () => {
+      setCount(toPoints(e, saved.images).length)
+      saved.draft = e.isEmpty ? "" : e.getMarkdown()
+    }
+    sync()
+    e.on("update", sync)
   }
 
   function submit() {
+    if (!editor.current) return
+    const points = toPoints(editor.current, saved.images)
     const form = new FormData()
-    form.set("taskId", taskId)
-    drafts.forEach((d, i) => {
-      form.set(`body-${i}`, d.body)
-      if (d.image)
+    if (task) form.set("taskId", task.id)
+    else form.set("recipientId", recipientId)
+    points.forEach((p, i) => {
+      form.set(`body-${i}`, p.body)
+      if (p.image)
         form.set(
           `image-${i}`,
-          d.image,
-          `screenshot-${i}.${d.image.type.split("/")[1]}`
+          p.image,
+          `screenshot-${i}.${p.image.type.split("/")[1]}`
         )
     })
     start(async () => {
       const res = await createFeedback(form)
       if (res.error) return setError(res.error)
-      drafts.forEach((d) => d.preview && URL.revokeObjectURL(d.preview))
-      setDrafts([blank()])
-      setError(undefined)
-      onOpenChange(false)
+      saved.images.forEach((_, src) => URL.revokeObjectURL(src))
+      Object.assign(saved, { taskId: "", recipientId: "", draft: "", images: new Map() })
       const n = res.count === 1 ? "1 point" : `${res.count} points`
-      toast.success(
-        task?.assignee
-          ? `Sent ${n} to ${task.assignee.split(" ")[0]}`
-          : `Saved ${n}`
-      )
+      toast.success(forName ? `Sent ${n} to ${forName.split(" ")[0]}` : `Saved ${n}`)
+      router.replace("/feedback")
     })
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="max-h-[90dvh] gap-0 overflow-y-auto rounded-tile p-0 sm:max-w-xl"
-      >
-        {tasks.length === 0 ? (
-          <div className="p-8 text-center">
-            <DialogTitle className="text-lg font-normal">
-              Add a task first
-            </DialogTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Feedback is given on a task.
-            </p>
-          </div>
-        ) : (
-          <form
-            action={submit}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
-                e.currentTarget.requestSubmit()
-            }}
+    <form
+      action={submit}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+          e.currentTarget.requestSubmit()
+      }}
+      data-focus
+      className="flex flex-col gap-6"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <Crumbs
+          onBack={() => router.back()}
+          trail={[{ href: "/feedback", label: "Feedback" }]}
+          current="Give feedback"
+        />
+        <div className="flex shrink-0 items-center gap-2">
+          <PanelToggle />
+          <Button
+            type="submit"
+            className="h-11 rounded-full px-5 transition-[background-color,scale] active:scale-95"
+            disabled={pending || (!task && !recipientId) || count === 0}
           >
-            <div className="flex items-center justify-between px-6 pt-5">
-              <DialogTitle className="text-2xl font-light tracking-tight">
-                Give feedback
-              </DialogTitle>
-              <DialogClose
-                aria-label="Close"
-                className="-mr-2 grid size-8 place-items-center rounded-full text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <XIcon className="size-4" />
-              </DialogClose>
-            </div>
-
-            <div className="mx-3 mt-4 grid grid-cols-1 rounded-panel bg-muted/60 p-1.5">
-              <div className="flex h-11 items-center gap-2 pl-2.5">
-                <ListChecksIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="w-12 shrink-0 text-sm text-muted-foreground">
-                  Task
+            {pending
+              ? "Sending…"
+              : count > 1
+                ? `Send ${count} points`
+                : "Send feedback"}
+          </Button>
+        </div>
+      </div>
+      <FocusLayout
+        title={<h1 className="sr-only">Give feedback</h1>}
+        side={
+          <SideSection label="Feedback">
+            <SideProp icon={UserIcon} label="For">
+              {task ? (
+                <span className={cn("truncate px-2.5", !forName && "text-muted-foreground")}>
+                  {forName ?? "Not assigned yet"}
                 </span>
+              ) : (
                 <Pick
-                  aria-label="Task"
+                  aria-label="For"
                   variant="ghost"
-                  className={propPick}
-                  value={taskId}
-                  onChange={setTaskId}
-                  options={tasks.map((t) => ({
+                  className="max-w-full *:data-[slot=select-value]:min-w-0"
+                  placeholder="Pick someone"
+                  value={recipientId || null}
+                  onChange={(id) => {
+                    setRecipientId(id)
+                    saved.recipientId = id
+                  }}
+                  options={people.map((p) => ({
+                    value: p.id,
+                    label: (
+                      <span className="flex min-w-0 items-center gap-2">
+                        <UserAvatar user={p} className="size-5 ring-0" />
+                        <span className="truncate">{p.name}</span>
+                      </span>
+                    ),
+                  }))}
+                />
+              )}
+            </SideProp>
+            <SideProp icon={ListChecksIcon} label="Task">
+              <Pick
+                aria-label="Task"
+                variant="ghost"
+                className="max-w-full *:data-[slot=select-value]:min-w-0"
+                value={taskId || NO_TASK}
+                onChange={(id) => {
+                  const next = id === NO_TASK ? "" : id
+                  setTaskId(next)
+                  saved.taskId = next
+                }}
+                options={[
+                  { value: NO_TASK, label: <span className="text-muted-foreground">No task</span> },
+                  ...tasks.map((t) => ({
                     value: t.id,
                     label: (
                       <span className="flex min-w-0 items-center gap-2">
@@ -557,147 +810,39 @@ function GiveFeedbackDialog({
                         <span className="truncate">{t.title}</span>
                       </span>
                     ),
-                  }))}
-                />
-              </div>
-              <div className="flex h-11 items-center gap-2 pl-2.5 text-sm">
-                <UserIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="w-12 shrink-0 text-muted-foreground">For</span>
-                <span
-                  className={cn(
-                    "px-2.5",
-                    !task?.assignee && "text-muted-foreground"
-                  )}
-                >
-                  {task?.assignee ?? "Not assigned yet"}
-                </span>
-              </div>
-            </div>
-
-            <ol className="flex flex-col gap-2.5 px-3 pt-3">
-              <AnimatePresence initial={false}>
-                {drafts.map((d, i) => (
-                  <motion.li
-                    key={d.key}
-                    layout
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{
-                      opacity: 0,
-                      scale: 0.97,
-                      transition: { duration: 0.18 },
-                    }}
-                    transition={spring}
-                    onPaste={(e) => {
-                      const file = imageIn(e.clipboardData)
-                      if (file) {
-                        e.preventDefault()
-                        void attach(d.key, file)
-                      }
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault()
-                      setOver(d.key)
-                    }}
-                    onDragLeave={() => setOver(null)}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      setOver(null)
-                      void attach(d.key, imageIn(e.dataTransfer))
-                    }}
-                    className={cn(
-                      "relative rounded-panel bg-muted/60 p-3 transition-shadow",
-                      over === d.key && "ring-2 ring-foreground/15"
-                    )}
-                  >
-                    <Textarea
-                      autoFocus={i === drafts.length - 1}
-                      value={d.body}
-                      onChange={(e) => edit(d.key, { body: e.target.value })}
-                      placeholder={
-                        i === 0
-                          ? "What should change? Paste a screenshot here too."
-                          : "Another point…"
-                      }
-                      aria-label={`Point ${i + 1}`}
-                      className="min-h-12 resize-none border-0 bg-transparent px-1 pr-9 text-base shadow-none focus-visible:ring-0 md:text-base dark:bg-transparent"
-                    />
-                    {drafts.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => drop(d)}
-                        aria-label={`Remove point ${i + 1}`}
-                        className="absolute top-2.5 right-2.5 grid size-8 place-items-center rounded-full text-muted-foreground transition-[background-color,color,scale] hover:bg-card hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-95"
-                      >
-                        <XIcon className="size-4" />
-                      </button>
-                    )}
-                    {d.preview ? (
-                      <div className="relative mt-2 inline-block max-w-full">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- a local blob preview */}
-                        <img
-                          src={d.preview}
-                          alt={`Screenshot for point ${i + 1}`}
-                          className="max-h-48 rounded-xl bg-card ring-1 ring-foreground/5"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => detach(d)}
-                          aria-label="Remove screenshot"
-                          className="absolute -top-2 -right-2 grid size-7 place-items-center rounded-full bg-foreground text-background shadow-md transition-[scale] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-90"
-                        >
-                          <XIcon className="size-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <label className="mt-1 inline-flex h-10 cursor-pointer items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition-[background-color,color,scale] focus-within:ring-3 focus-within:ring-ring/50 hover:bg-card hover:text-foreground active:scale-95">
-                        <ImagePlusIcon className="size-4" />
-                        Add screenshot
-                        <span className="hidden text-foreground/40 sm:inline">
-                          or paste / drop
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="sr-only"
-                          onChange={(e) => {
-                            void attach(d.key, e.target.files?.[0])
-                            e.target.value = ""
-                          }}
-                        />
-                      </label>
-                    )}
-                  </motion.li>
-                ))}
-              </AnimatePresence>
-            </ol>
-
-            {error && (
-              <p className="px-6 pt-3 text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <div className="flex items-center justify-between gap-3 px-6 pt-4 pb-5">
-              <Button
-                variant="ghost"
-                onClick={() => setDrafts((ds) => [...ds, blank()])}
-                className="-ml-3 h-10 gap-2 rounded-full px-3 font-normal text-muted-foreground transition-[background-color,scale] active:scale-95"
-              >
-                <PlusIcon className="size-4" />
-                Add point
-              </Button>
-              <Button
-                type="submit"
-                size="lg"
-                className="h-10 rounded-full px-5 transition-[background-color,scale] active:scale-95"
-                disabled={pending || !taskId}
-              >
-                {pending ? "Sending…" : "Send feedback"}
-              </Button>
-            </div>
-          </form>
+                  })),
+                ]}
+              />
+            </SideProp>
+          </SideSection>
+        }
+      >
+        <EditorSheet className="flex flex-col gap-4">
+          <RichText
+            autoFocus
+            aria-label="Feedback"
+            defaultValue={saved.draft}
+            placeholder="What should change? One line per point. Paste a screenshot under its line."
+            onImage={async (blob) => {
+              const src = URL.createObjectURL(blob)
+              saved.images.set(src, blob)
+              return src
+            }}
+            onReady={ready}
+            contentClassName="min-h-[60dvh] text-base"
+          />
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <ImagePlusIcon className="size-3.5 shrink-0" />
+            Paste or drop screenshots, or type / for headings and lists. ⌘↵
+            sends.
+          </p>
+        </EditorSheet>
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
         )}
-      </DialogContent>
-    </Dialog>
+      </FocusLayout>
+    </form>
   )
 }

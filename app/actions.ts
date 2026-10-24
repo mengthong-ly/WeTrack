@@ -1,7 +1,7 @@
 "use server"
 
-import { and, eq, gt, inArray, isNull, max } from "drizzle-orm"
-import { headers } from "next/headers"
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm"
+import { cookies, headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
@@ -10,6 +10,7 @@ import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   activity,
+  attachment,
   clientUpdate,
   comment,
   feedback,
@@ -18,7 +19,6 @@ import {
   member,
   project,
   shareLink,
-  subtask,
   task,
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -37,6 +37,7 @@ import {
   slackCancelled,
   slackCreated,
 } from "@/lib/meetings"
+import { LAST_PROJECT_COOKIE } from "@/lib/options"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { postSlack, postToWebhook } from "@/lib/slack"
@@ -233,6 +234,8 @@ const taskFields = z.object({
   progress: z.number().int().min(0).max(100),
   startDate: isoDate,
   deadline: isoDate,
+  /** A sub-task: it goes in its parent's project. */
+  parentId: z.string().nullish(),
 })
 
 export async function createTask(
@@ -242,6 +245,11 @@ export async function createTask(
   const parsed = taskFields.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const data = parsed.data
+  if (data.parentId) {
+    const parent = await ownTask(me.orgId, data.parentId)
+    if (!parent) return { error: "Parent task not found." }
+    data.projectId = parent.projectId
+  }
   if (!(await ownProject(me.orgId, data.projectId))) return { error: "Project not found." }
   if (data.assigneeId && !(await isMember(me.orgId, data.assigneeId)))
     return { error: "Assignee isn't in this workspace." }
@@ -256,11 +264,13 @@ export async function createTask(
     })
     .returning({ id: task.id })
   await log(me.orgId, me.user.id, "task_created", { projectId: data.projectId, taskId: row.id })
+  const jar = await cookies() // the New task page starts on the project used last
+  jar.set(LAST_PROJECT_COOKIE, data.projectId, { maxAge: 60 * 60 * 24 * 365, httpOnly: true, sameSite: "lax" })
   refresh()
   return { id: row.id }
 }
 
-const taskPatch = taskFields.partial()
+const taskPatch = taskFields.omit({ parentId: true }).partial() // a task stays where it was made
 
 export async function updateTask(taskId: string, patch: z.input<typeof taskPatch>): Promise<Result> {
   const me = await requireMember()
@@ -311,42 +321,27 @@ export async function deleteTask(taskId: string): Promise<Result> {
 
 // ---------- Sub-tasks & comments ----------
 
-export async function addSubtask(taskId: string, title: string): Promise<Result> {
+// Quick add from the parent's page: a full task under it, in its project, not started. Ticking and
+// deleting a sub-task use updateTask and deleteTask like any task.
+export async function addSubtask(parentId: string, title: string): Promise<Result & { id?: string }> {
   const me = await requireMember()
   const parsed = z.string().trim().min(1).max(200).safeParse(title)
   if (!parsed.success) return { error: "Sub-task needs a title." }
-  if (!(await ownTask(me.orgId, taskId))) return { error: "Task not found." }
-  const [{ last }] = await db
-    .select({ last: max(subtask.position) })
-    .from(subtask)
-    .where(eq(subtask.taskId, taskId))
-  await db.insert(subtask).values({ taskId, title: parsed.data, position: (last ?? -1) + 1 })
+  const parent = await ownTask(me.orgId, parentId)
+  if (!parent) return { error: "Task not found." }
+  const [row] = await db
+    .insert(task)
+    .values({
+      organizationId: me.orgId,
+      projectId: parent.projectId,
+      parentId,
+      createdById: me.user.id,
+      title: parsed.data,
+    })
+    .returning({ id: task.id })
+  await log(me.orgId, me.user.id, "task_created", { projectId: parent.projectId, taskId: row.id })
   refresh()
-  return {}
-}
-
-async function ownSubtask(orgId: string, subtaskId: string) {
-  const row = await db.query.subtask.findFirst({
-    where: eq(subtask.id, subtaskId),
-    with: { task: { columns: { organizationId: true } } },
-  })
-  return row?.task.organizationId === orgId ? row : null
-}
-
-export async function toggleSubtask(subtaskId: string, done: boolean): Promise<Result> {
-  const me = await requireMember()
-  if (!(await ownSubtask(me.orgId, subtaskId))) return { error: "Sub-task not found." }
-  await db.update(subtask).set({ done }).where(eq(subtask.id, subtaskId))
-  refresh()
-  return {}
-}
-
-export async function deleteSubtask(subtaskId: string): Promise<Result> {
-  const me = await requireMember()
-  if (!(await ownSubtask(me.orgId, subtaskId))) return { error: "Sub-task not found." }
-  await db.delete(subtask).where(eq(subtask.id, subtaskId))
-  refresh()
-  return {}
+  return { id: row.id }
 }
 
 export async function addComment(taskId: string, body: string): Promise<Result> {
@@ -359,17 +354,42 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
   return {}
 }
 
+// ---------- Images ----------
+
+const IMAGE_TYPES = ["image/webp", "image/png", "image/jpeg", "image/gif"]
+const IMAGE_MAX = 4 * 1024 * 1024
+
+// An image pasted into a task description or comment. The Markdown links to it by URL.
+export async function uploadImage(form: FormData): Promise<Result & { src?: string }> {
+  const me = await requireMember()
+  const image = form.get("image")
+  if (!(image instanceof File) || !IMAGE_TYPES.includes(image.type) || image.size > IMAGE_MAX) {
+    return { error: "Images must be under 4 MB." }
+  }
+  const [row] = await db
+    .insert(attachment)
+    .values({
+      organizationId: me.orgId,
+      uploaderId: me.user.id,
+      data: Buffer.from(await image.arrayBuffer()),
+      type: image.type,
+    })
+    .returning({ id: attachment.id })
+  return { src: `/api/attachments/${row.id}` }
+}
+
 // ---------- Feedback ----------
 
-const FEEDBACK_IMAGE_TYPES = ["image/webp", "image/png", "image/jpeg", "image/gif"]
-const FEEDBACK_IMAGE_MAX = 4 * 1024 * 1024
-
-// A senior's points on a task, sent together. Each point is `body-<i>` and/or `image-<i>`;
-// it goes to whoever the task is assigned to now.
+// A senior's points for a teammate, sent together. Each point is `body-<i>` and/or `image-<i>`.
+// With a `taskId` they go to whoever the task is assigned to now; without one, to `recipientId`.
 export async function createFeedback(form: FormData): Promise<Result & { count?: number }> {
   const me = await requireMember()
-  const t = await ownTask(me.orgId, String(form.get("taskId") ?? ""))
-  if (!t) return { error: "Pick a task first." }
+  const taskId = String(form.get("taskId") ?? "")
+  const t = taskId ? await ownTask(me.orgId, taskId) : null
+  if (taskId && !t) return { error: "That task no longer exists." }
+  const recipientId = t ? t.assigneeId : String(form.get("recipientId") ?? "") || null
+  if (!t && !recipientId) return { error: "Pick who it's for, or a task." }
+  if (!t && recipientId && !(await isMember(me.orgId, recipientId))) return { error: "Pick someone on the team." }
   const rows: (typeof feedback.$inferInsert)[] = []
   const now = Date.now()
   for (let i = 0; i < 30; i++) {
@@ -377,14 +397,14 @@ export async function createFeedback(form: FormData): Promise<Result & { count?:
     const file = form.get(`image-${i}`)
     const image = file instanceof File && file.size > 0 ? file : null
     if (!body && !image) continue
-    if (image && (!FEEDBACK_IMAGE_TYPES.includes(image.type) || image.size > FEEDBACK_IMAGE_MAX)) {
+    if (image && (!IMAGE_TYPES.includes(image.type) || image.size > IMAGE_MAX)) {
       return { error: "Screenshots must be images under 4 MB." }
     }
     rows.push({
       organizationId: me.orgId,
-      taskId: t.id,
+      taskId: t?.id ?? null,
       authorId: me.user.id,
-      recipientId: t.assigneeId,
+      recipientId,
       body: body || null,
       image: image && Buffer.from(await image.arrayBuffer()),
       imageType: image?.type ?? null,
@@ -409,6 +429,19 @@ export async function setFeedbackResolved(id: string, resolved: boolean): Promis
   const me = await requireMember()
   if (!(await ownFeedback(me.orgId, id))) return { error: "Feedback not found." }
   await db.update(feedback).set({ resolvedAt: resolved ? new Date() : null }).where(eq(feedback.id, id))
+  refresh()
+  return {}
+}
+
+export async function updateFeedback(id: string, text: string): Promise<Result> {
+  const me = await requireMember()
+  const row = await ownFeedback(me.orgId, id)
+  if (!row) return { error: "Feedback not found." }
+  if (row.authorId !== me.user.id && me.role === "member") return { error: "Only the person who wrote it can edit it." }
+  const body = text.trim().slice(0, 5000)
+  const [{ image }] = await db.select({ image: sql<boolean>`${feedback.image} is not null` }).from(feedback).where(eq(feedback.id, id))
+  if (!body && !image) return { error: "Write a note, or delete the point." }
+  await db.update(feedback).set({ body: body || null }).where(eq(feedback.id, id))
   refresh()
   return {}
 }

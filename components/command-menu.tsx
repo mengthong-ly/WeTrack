@@ -23,12 +23,20 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ProjectDot, UserAvatar } from "@/components/bits"
 import { openNewMeeting } from "@/components/new-meeting-dialog"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
 import { STATUS } from "@/lib/labels"
 import type { MemberLite, ProjectLite } from "@/lib/options"
 import type { TaskIndexRow } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
+// Fired by C, the dock's "+", ⌘K and panels; NewTaskHost opens the New task page with the detail as its preset.
 export const NEW_TASK_EVENT = "wetrack:new-task"
+// Fields a caller can fill in before the page opens (a priority group's "Add task", a 3D station's "New task").
+export type NewTaskPreset = { priority?: TaskPriority; status?: TaskStatus; projectId?: string; assigneeId?: string }
+export function newTaskHref(preset: NewTaskPreset = {}) {
+  const query = new URLSearchParams(Object.entries(preset).filter((e): e is [string, string] => !!e[1]))
+  return query.size ? `/tasks/new?${query}` : "/tasks/new"
+}
 
 type Item = {
   id: string
@@ -77,6 +85,7 @@ export function CommandMenu({
     const go = (href: string) => () => router.push(href)
     return [
       { id: "new", group: "Actions", label: "New task", icon: icon(PlusIcon), hint: <kbd className={kbd}>C</kbd>, run: () => window.dispatchEvent(new Event(NEW_TASK_EVENT)) },
+      { id: "give-feedback", group: "Actions", label: "Give feedback", icon: icon(MessageSquareQuoteIcon), keywords: "review notes screenshots", run: go("/feedback/new") },
       { id: "meeting", group: "Actions", label: "New meeting", icon: icon(VideoIcon), keywords: "schedule google meet call", run: () => openNewMeeting() },
       { id: "mine", group: "Actions", label: "My open tasks", icon: icon(UserIcon), run: go(`/tasks?person=${meId}&status=open`) },
       {

@@ -2,24 +2,16 @@
 
 import { BoxIcon, FolderIcon, LayoutGridIcon, ListChecksIcon, MessageSquareQuoteIcon, PlusIcon, UsersIcon } from "lucide-react"
 import { motion } from "motion/react"
-import dynamic from "next/dynamic"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Suspense, useEffect, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
+import { Suspense, useEffect, useRef } from "react"
 
-import { NEW_TASK_EVENT } from "@/components/command-menu"
-import { spring } from "@/components/motion-bits"
-import type { NewTaskPreset } from "@/components/new-task-dialog"
+import { NEW_TASK_EVENT, newTaskHref, type NewTaskPreset } from "@/components/command-menu"
+import { spring, useHoldHoverInTransitions } from "@/components/motion-bits"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { MemberLite, ProjectLite } from "@/lib/options"
 import { cn, isTyping, whenIdle } from "@/lib/utils"
 
-// The dialog (quick capture, pickers, date-fns) is fetched in idle time after the page and mounted
-// on the first open, so it stays out of every page's first load.
-const loadDialog = () => import("@/components/new-task-dialog").then((m) => m.NewTaskDialog)
-const NewTaskDialog = dynamic(loadDialog)
-
-const NAV = [
+export const NAV = [
   { href: "/", label: "Home", icon: LayoutGridIcon },
   { href: "/workspace", label: "Workspace", icon: BoxIcon },
   { href: "/tasks", label: "Tasks", icon: ListChecksIcon },
@@ -29,7 +21,7 @@ const NAV = [
 ]
 
 // Floating pill nav + dark "+" button, like the reference screens. No data, so it's in the
-// prefetched shell; "+" asks NewTaskHost (mounted once the signed-in data arrives) to open the dialog.
+// prefetched shell; "+" asks NewTaskHost to open the New task page.
 export function AppDock() {
   return (
     <Suspense fallback={<Dock pathname={null} />}>
@@ -45,8 +37,10 @@ function CurrentDock() {
 }
 
 function Dock({ pathname }: { pathname: string | null }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useHoldHoverInTransitions(ref)
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+    <div ref={ref} data-app-dock className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto flex items-center gap-3">
         <nav
           aria-label="Main"
@@ -117,38 +111,28 @@ function Dock({ pathname }: { pathname: string | null }) {
   )
 }
 
-// The New task dialog and its triggers: C anywhere, the dock's "+", NEW_TASK_EVENT from ⌘K or a panel.
-export function NewTaskHost(props: { projects: ProjectLite[]; members: MemberLite[]; meId: string }) {
-  const [open, setOpen] = useState(false)
-  const [opened, setOpened] = useState(false)
-  // A fresh object per open, so the dialog resets to these defaults each time.
-  const [preset, setPreset] = useState<NewTaskPreset>({})
-
+// C anywhere, the dock's "+", NEW_TASK_EVENT from ⌘K or a panel: all open the New task page.
+export function NewTaskHost() {
+  const router = useRouter()
   useEffect(() => {
-    const openNew = (p: NewTaskPreset = {}) => {
-      setPreset(p)
-      setOpen(true)
-      setOpened(true)
-    }
+    const open = (preset?: NewTaskPreset) => router.push(newTaskHref(preset))
     const onKey = (e: KeyboardEvent) => {
       if (e.key?.toLowerCase() === "c" && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e.target)) {
         e.preventDefault()
-        openNew()
+        open()
       }
     }
     // NEW_TASK_EVENT may carry defaults: { priority } from a priority group's "Add task" row,
-    // { status | projectId | assigneeId } from a station's "+" in the 3D workspace.
-    const onNew = (e: Event) => openNew((e as CustomEvent).detail ?? {})
+    // { status | projectId | assigneeId } from a panel in the 3D workspace.
+    const onNew = (e: Event) => open((e as CustomEvent<NewTaskPreset | null>).detail ?? undefined)
     window.addEventListener("keydown", onKey)
     window.addEventListener(NEW_TASK_EVENT, onNew)
-    const cancel = whenIdle(() => void loadDialog())
+    const cancel = whenIdle(() => router.prefetch("/tasks/new"))
     return () => {
       window.removeEventListener("keydown", onKey)
       window.removeEventListener(NEW_TASK_EVENT, onNew)
       cancel()
     }
-  }, [])
-
-  if (!opened) return null
-  return <NewTaskDialog open={open} onOpenChange={setOpen} preset={preset} {...props} />
+  }, [router])
+  return null
 }

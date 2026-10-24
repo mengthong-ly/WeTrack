@@ -26,8 +26,18 @@ const COMPONENTS = { DayButton: DayCell }
 
 // The shadcn Calendar (react-day-picker) laid out as a full-width month: tasks sit on their deadline day,
 // and a day opens a side sheet with everything due then.
-export function TaskCalendar({ tasks, today }: { tasks: BrowserTask[]; today: string }) {
-  const [month, setMonth] = useState(today.slice(0, 7))
+// `month` ("YYYY-MM") is the Tasks page's (?month=), which loads that month's tasks.
+export function TaskCalendar({
+  tasks,
+  today,
+  month,
+  onMonth,
+}: {
+  tasks: BrowserTask[]
+  today: string
+  month: string
+  onMonth: (month: string) => void
+}) {
   // `day` outlives `open` so the sheet keeps its content while it slides out.
   const [day, setDay] = useState(today)
   const [open, setOpen] = useState(false)
@@ -39,7 +49,7 @@ export function TaskCalendar({ tasks, today }: { tasks: BrowserTask[]; today: st
   function go(next: string) {
     if (next === month) return
     const from = `translateX(${reduce ? 0 : next > month ? 16 : -16}px)`
-    setMonth(next)
+    onMonth(next)
     animate(scope.current, { opacity: [0, 1], transform: [from, "translateX(0px)"] }, { duration: 0.3, ease: [0.16, 1, 0.3, 1] })
   }
 
@@ -68,7 +78,7 @@ export function TaskCalendar({ tasks, today }: { tasks: BrowserTask[]; today: st
           <Due value={{ due, today }}>
           <Calendar
             month={new Date(`${month}-01T00:00:00`)}
-            onMonthChange={(d) => setMonth(format(d, "yyyy-MM"))}
+            onMonthChange={(d) => onMonth(format(d, "yyyy-MM"))}
             today={new Date(`${today}T00:00:00`)}
             weekStartsOn={1}
             hideNavigation

@@ -3,6 +3,9 @@
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
+/* A focus page is open: one with `data-focus` that isn't a page Next is keeping hidden for Back/Forward
+   (those stay in the DOM under `display: none`). */
+@custom-variant focus-page (&:has([data-focus]:not([style*="display: none"], [style*="display: none"] *)));
 
 @theme inline {
     --font-heading: var(--font-sans);
@@ -142,10 +145,17 @@
     @apply font-sans;
     }
 }
-/* Rich text written in <RichText> (Tiptap). Kept small: only the marks and blocks its toolbar offers. */
+/* Rich text written in <RichText> (Tiptap). Kept small: only the marks and blocks its block menu and format bar offer. */
 @layer components {
   .rich {
     @apply flex flex-col gap-2 leading-relaxed break-words;
+  }
+  /* Headings by size, never weight. */
+  .rich h1 {
+    @apply mt-2 text-3xl leading-tight font-light tracking-tight text-foreground first:mt-0;
+  }
+  .rich h2 {
+    @apply mt-1 text-2xl leading-snug font-light tracking-tight text-foreground first:mt-0;
   }
   .rich h3 {
     @apply text-lg leading-snug text-foreground;
@@ -177,8 +187,158 @@
   .rich pre code {
     @apply bg-transparent p-0;
   }
-  .rich p.is-editor-empty:first-child::before {
-    @apply pointer-events-none float-left h-0 text-muted-foreground;
+  /* Placeholder: the caller's on an empty editor, the "/" hint on the empty line you're on. */
+  .rich .is-empty::before {
+    @apply pointer-events-none float-left h-0 text-muted-foreground/70;
     content: attr(data-placeholder);
+  }
+  .rich hr {
+    @apply my-2 h-px border-0 bg-foreground/10;
+  }
+  .rich img {
+    @apply max-h-96 max-w-full rounded-panel bg-muted object-contain ring-1 ring-foreground/5;
+  }
+  .rich img.ProseMirror-selectednode {
+    @apply ring-3 ring-ring/50;
+  }
+  /* Checklists: the round checkbox from TaskCard. */
+  .rich ul[data-type="taskList"] {
+    @apply list-none pl-0;
+  }
+  .rich ul[data-type="taskList"] > li {
+    @apply flex items-start gap-2.5;
+  }
+  .rich ul[data-type="taskList"] > li > label {
+    @apply relative mt-[0.2em] flex shrink-0 select-none;
+  }
+  .rich ul[data-type="taskList"] > li > div {
+    @apply min-w-0 flex-1;
+  }
+  .rich ul[data-type="taskList"] > li input[type="checkbox"] {
+    @apply grid size-5 cursor-pointer appearance-none place-items-center rounded-full border-[1.5px] border-foreground/30 transition-[background-color,border-color,scale] outline-none hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-90;
+  }
+  .rich ul[data-type="taskList"] > li input[type="checkbox"]:checked {
+    @apply border-foreground bg-foreground;
+  }
+  /* The tick, as a mask so it takes the background colour in both themes. */
+  .rich ul[data-type="taskList"] > li input[type="checkbox"]:checked::after {
+    @apply size-3 bg-background;
+    content: "";
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  .rich ul[data-type="taskList"] > li[data-checked="true"] > div {
+    @apply text-muted-foreground line-through decoration-foreground/30;
+  }
+  .rich[contenteditable="false"] li[data-type="taskItem"] input[type="checkbox"] {
+    @apply pointer-events-none;
+  }
+}
+/* Text settings from an EditorSheet (`components/editor-tools.tsx`). Unlayered so they win over the caller's
+   `text-base` / `leading-*`; headings scale with the chosen size. */
+[data-tuned] :is(.rich, .rich-source) {
+  font-size: var(--rich-size);
+  line-height: var(--rich-leading);
+  width: 100%;
+  max-width: var(--rich-width);
+}
+[data-tuned] .rich h1 {
+  font-size: 1.875em;
+}
+[data-tuned] .rich h2 {
+  font-size: 1.5em;
+}
+[data-tuned] .rich h3 {
+  font-size: 1.125em;
+}
+[data-font="serif"] :is(.rich, .rich-source) {
+  font-family: var(--font-serif);
+}
+[data-font="mono"] :is(.rich, .rich-source) {
+  font-family: var(--font-mono);
+}
+/* Focus pages (task, New task, Give feedback: `data-focus`): the page is the whole UI, so the app header and
+   sidebar step aside and the breadcrumb takes their place. */
+body:has([data-focus]:not([style*="display: none"], [style*="display: none"] *)) :is([data-app-header], [data-app-sidebar]) {
+  display: none;
+}
+/* Page transitions (`PageTransition` in motion-bits.tsx, React <ViewTransition>). Only the page content animates:
+   the root isn't snapshotted, so everything else keeps rendering live and takes clicks. */
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-old(root) {
+  display: none;
+}
+::view-transition-new(root) {
+  animation: none;
+}
+/* The page you leave fades out fast and lifts a little; the next one fades in (its Reveals rise as usual). */
+::view-transition-old(.page-out) {
+  --page-lift: -6px;
+  animation: 150ms var(--ease-out-expo) both page-out;
+}
+::view-transition-new(.page-in) {
+  animation: 250ms var(--ease-out-expo) both page-in;
+}
+@keyframes page-out {
+  to {
+    opacity: 0;
+    translate: 0 var(--page-lift, 0);
+  }
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+}
+/* The frame. Header and rail stay put when they're on both pages, and fade with the page when a focus page hides
+   or shows them. */
+html:active-view-transition [data-app-header] {
+  view-transition-name: app-header;
+}
+html:active-view-transition [data-app-sidebar] {
+  view-transition-name: app-rail;
+}
+::view-transition-group(app-header),
+::view-transition-group(app-rail) {
+  animation: none;
+  z-index: 1;
+}
+::view-transition-old(app-header):not(:only-child),
+::view-transition-old(app-rail):not(:only-child) {
+  display: none;
+}
+::view-transition-new(app-header),
+::view-transition-new(app-rail) {
+  animation: none;
+}
+::view-transition-old(app-header):only-child,
+::view-transition-old(app-rail):only-child {
+  animation: 150ms var(--ease-out-expo) both page-out;
+}
+::view-transition-new(app-header):only-child,
+::view-transition-new(app-rail):only-child {
+  animation: 250ms var(--ease-out-expo) both page-in;
+}
+/* Floating layers (the dock, toasts, Base UI popups: tooltips, menus, dialogs) would drop under the fading page,
+   since snapshots paint above everything live. Pin them above it, live. */
+html:active-view-transition :is([data-app-dock], [data-sonner-toaster], [data-base-ui-portal]) {
+  view-transition-name: match-element;
+  view-transition-class: layer;
+}
+::view-transition-group(.layer) {
+  animation: none;
+  z-index: 2;
+}
+::view-transition-old(.layer) {
+  display: none;
+}
+::view-transition-new(.layer) {
+  animation: none;
+}
+/* Reduced motion: the fades stay, the lift goes. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(.page-out) {
+    --page-lift: 0;
   }
 }

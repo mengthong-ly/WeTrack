@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   boolean,
   customType,
   date,
@@ -78,6 +79,8 @@ export const task = pgTable(
     releaseId: text("release_id").references(() => release.id, { onDelete: "set null" }),
     assigneeId: text("assignee_id").references(() => user.id, { onDelete: "set null" }),
     createdById: text("created_by_id").references(() => user.id, { onDelete: "set null" }),
+    // Sub-tasks are tasks with a parent, nested to any depth; deleting a task deletes everything under it.
+    parentId: text("parent_id").references((): AnyPgColumn => task.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     description: text("description"),
     type: taskType("type").notNull().default("development"),
@@ -97,22 +100,8 @@ export const task = pgTable(
     index("task_org_idx").on(t.organizationId),
     index("task_project_idx").on(t.projectId),
     index("task_assignee_idx").on(t.assigneeId),
+    index("task_parent_idx").on(t.parentId),
   ]
-)
-
-export const subtask = pgTable(
-  "subtask",
-  {
-    id: id(),
-    taskId: text("task_id")
-      .notNull()
-      .references(() => task.id, { onDelete: "cascade" }),
-    title: text("title").notNull(),
-    done: boolean("done").notNull().default(false),
-    position: integer("position").notNull().default(0),
-    createdAt: createdAt(),
-  },
-  (t) => [index("subtask_task_idx").on(t.taskId)]
 )
 
 export const comment = pgTable(
@@ -237,18 +226,16 @@ export const workspaceIntegration = pgTable("workspace_integration", {
 
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" })
 
-// One point of feedback on a task: a note, a screenshot, or both, for whoever the task was assigned
-// to when it was written. The image lives in the row (screenshots are shrunk to WebP in the browser
-// first), so there is no file store to back up; lists select every column but `image`.
+// One point of feedback for a teammate: a note, a screenshot, or both. It may name a task, and then it goes to
+// whoever the task was assigned to when it was written. The image lives in the row (screenshots are shrunk to
+// WebP in the browser first), so there is no file store to back up; lists select every column but `image`.
 // ponytail: images in Postgres, move to object storage if the table passes a few GB.
 export const feedback = pgTable(
   "feedback",
   {
     id: id(),
     organizationId: orgId(),
-    taskId: text("task_id")
-      .notNull()
-      .references(() => task.id, { onDelete: "cascade" }),
+    taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
     authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
     recipientId: text("recipient_id").references(() => user.id, { onDelete: "set null" }),
     body: text("body"),
@@ -258,6 +245,21 @@ export const feedback = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("feedback_org_idx").on(t.organizationId, t.createdAt), index("feedback_task_idx").on(t.taskId)]
+)
+
+// An image pasted into a task description or comment, linked from the Markdown as /api/attachments/<id>.
+// ponytail: no orphan cleanup (an image removed from the text stays); sweep unreferenced rows if the table grows.
+export const attachment = pgTable(
+  "attachment",
+  {
+    id: id(),
+    organizationId: orgId(),
+    uploaderId: text("uploader_id").references(() => user.id, { onDelete: "set null" }),
+    data: bytea("data").notNull(),
+    type: text("type").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("attachment_org_idx").on(t.organizationId)]
 )
 
 export const projectRelations = relations(project, ({ many }) => ({
@@ -274,12 +276,9 @@ export const taskRelations = relations(task, ({ one, many }) => ({
   project: one(project, { fields: [task.projectId], references: [project.id] }),
   release: one(release, { fields: [task.releaseId], references: [release.id] }),
   assignee: one(user, { fields: [task.assigneeId], references: [user.id] }),
-  subtasks: many(subtask),
+  parent: one(task, { fields: [task.parentId], references: [task.id], relationName: "subtasks" }),
+  subtasks: many(task, { relationName: "subtasks" }),
   comments: many(comment),
-}))
-
-export const subtaskRelations = relations(subtask, ({ one }) => ({
-  task: one(task, { fields: [subtask.taskId], references: [task.id] }),
 }))
 
 export const commentRelations = relations(comment, ({ one }) => ({

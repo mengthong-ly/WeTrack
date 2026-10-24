@@ -36,7 +36,7 @@ function defaults() {
   return { date: startOfDay(at), start, end: toHHMM(toMin(start) + 30) }
 }
 
-// Same row as `Prop` in new-task-dialog.tsx.
+// One labelled row in the meeting dialog's properties panel.
 function Prop({ icon: Icon, label, className, children }: { icon: LucideIcon; label: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={cn("flex h-11 items-center gap-2 pl-2.5", className)}>

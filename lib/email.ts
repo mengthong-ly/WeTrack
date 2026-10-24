@@ -5,6 +5,8 @@ const transport = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT ?? 1025),
   secure: Number(process.env.SMTP_PORT) === 465,
+  // With credentials (Resend on 2587), refuse to fall back to plaintext if STARTTLS is stripped.
+  requireTLS: !!process.env.SMTP_USER,
   auth: process.env.SMTP_USER
     ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     : undefined,

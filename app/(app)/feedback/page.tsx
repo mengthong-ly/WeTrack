@@ -1,59 +1,38 @@
 import type { Metadata } from "next"
+import { Suspense } from "react"
 
-import { FeedbackBoard, type FeedbackItem } from "@/components/feedback"
-import { Reveal } from "@/components/motion-bits"
-import { listFeedback, listTasks } from "@/lib/queries"
+import { FeedbackBoard } from "@/components/feedback"
+import { PageTransition, Reveal } from "@/components/motion-bits"
+import { feedbackKey, readFeedbackParams, toSearchParams } from "@/lib/paging"
+import { feedbackPage, openFeedback } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
-import { ago } from "@/lib/time"
 
 export const metadata: Metadata = { title: "Feedback" }
 
-export default async function FeedbackPage() {
+// Renders the page of points the URL asks for (?who=, ?fixed=1, ?show=); FeedbackBoard fetches /api/feedback when
+// it changes. With no ?who=, it opens on "For me" when there's something to fix, otherwise the whole team.
+export default async function FeedbackPage({ searchParams }: PageProps<"/feedback">) {
   const me = await requireMember()
-  const [rows, tasks] = await Promise.all([
-    listFeedback(me.orgId),
-    listTasks(me.orgId),
-  ])
-
-  const items: FeedbackItem[] = rows.map((f) => ({
-    id: f.id,
-    body: f.body,
-    hasImage: !!f.imageType,
-    resolved: !!f.resolvedAt,
-    when: ago(f.createdAt),
-    task: {
-      id: f.task.id,
-      title: f.task.title,
-      color: f.task.project.color,
-      project: f.task.project.name,
-    },
-    author: f.author,
-    recipient: f.recipient,
-    canDelete: f.authorId === me.user.id || me.role !== "member",
-  }))
-  // The tasks people were last working on come first in the picker.
-  // ponytail: the 100 most recently touched, add a searchable picker if that's not enough.
-  const taskOptions = tasks
-    .toSorted((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-    .slice(0, 100)
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      color: t.project.color,
-      assignee: t.assignee?.name ?? null,
-    }))
+  const query = toSearchParams(await searchParams)
+  const fallback = query.has("who") ? "all" : (await openFeedback(me.orgId, me.user.id)).mine > 0 ? "mine" : "all"
+  const p = readFeedbackParams(query, fallback)
+  const page = await feedbackPage(me, p.who, p.fixed, 0, p.show)
 
   return (
-    <div className="flex flex-col gap-6">
-      <Reveal>
-        <h1 className="text-3xl font-light tracking-tight sm:text-4xl">
-          Feedback
-        </h1>
-        <p className="mt-1 text-muted-foreground">
-          Notes and screenshots on work. Tick a point once it&apos;s fixed.
-        </p>
-      </Reveal>
-      <FeedbackBoard items={items} tasks={taskOptions} meId={me.user.id} />
-    </div>
+    <PageTransition>
+      <div className="flex flex-col gap-6">
+        <Reveal>
+          <h1 className="text-3xl font-light tracking-tight sm:text-4xl">
+            Feedback
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            Notes and screenshots on work. Tick a point once it&apos;s fixed.
+          </p>
+        </Reveal>
+        <Suspense>
+          <FeedbackBoard initial={{ key: feedbackKey(p), ...page }} fallback={fallback} meId={me.user.id} />
+        </Suspense>
+      </div>
+    </PageTransition>
   )
 }

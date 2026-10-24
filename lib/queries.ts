@@ -1,6 +1,6 @@
 import "server-only"
 
-import { and, asc, countDistinct, desc, eq, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, countDistinct, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm"
 import { cache } from "react"
 
 import { CLIENT_KINDS } from "@/lib/client-update"
@@ -14,11 +14,14 @@ import {
   member,
   project,
   shareLink,
-  subtask,
   task,
   user,
 } from "@/lib/db/schema"
+import type { FeedbackItem } from "@/components/feedback"
 import { canJoin, formatSlot, joinUrl, type Viewer } from "@/lib/meetings"
+import type { FeedbackWho } from "@/lib/paging"
+import { monthRange, type TaskParams } from "@/lib/task-views"
+import { ago, dateTime } from "@/lib/time"
 
 // The (app) layout and its pages both read projects and members: cache() runs each once per request.
 // Async so the cached value is a promise (a Drizzle query re-runs every time it's awaited).
@@ -46,23 +49,92 @@ export function listArchivedProjects(orgId: string) {
   })
 }
 
+const liveProjects = (orgId: string) =>
+  db.select({ id: project.id }).from(project).where(and(eq(project.organizationId, orgId), eq(project.archived, false)))
+
+const taskWith = {
+  project: { columns: { id: true, name: true, color: true } },
+  assignee: { columns: { id: true, name: true, image: true } },
+  release: true,
+  subtasks: { columns: { status: true } },
+} as const
+
+// Every task in live projects, for the pages that count, chart or draw them all (Home, Projects, Team, the 3D
+// workspace, the CEO page). Descriptions stay in the database: only a short preview for the few cards shown.
 export function listTasks(orgId: string) {
-  const live = db
-    .select({ id: project.id })
-    .from(project)
-    .where(and(eq(project.organizationId, orgId), eq(project.archived, false)))
   return db.query.task.findMany({
-    where: and(eq(task.organizationId, orgId), inArray(task.projectId, live)),
-    with: {
-      project: { columns: { id: true, name: true, color: true } },
-      assignee: { columns: { id: true, name: true, image: true } },
-      release: true,
-      subtasks: { columns: { done: true } },
-    },
+    columns: { description: false },
+    extras: (t, { sql }) => ({ preview: sql<string | null>`substr(${t.description}, 1, 280)`.as("preview") }),
+    where: and(eq(task.organizationId, orgId), inArray(task.projectId, liveProjects(orgId))),
+    with: taskWith,
     orderBy: [desc(task.updatedAt)],
   })
 }
 export type TaskRow = Awaited<ReturnType<typeof listTasks>>[number]
+
+const WEEK_MS = 7 * 86_400_000
+const CALENDAR_MAX = 300
+const ACTIVE = ["in_progress", "review", "blocked"] as const
+// `%term%` for ilike, with the user's own % _ \\ matched literally.
+const contains = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+
+// One page of the Tasks page (top-level tasks), filtered and ordered in the database. Order matches the Date view:
+// overdue, then by deadline, then undated, then work finished before today (newest first); the Completed tab goes
+// by when it was done. The board keeps done work from the last week; the calendar reads its month and undated work.
+// ponytail: offset paging, so a task added while you page can repeat (the client drops repeats by id). Keyset
+// paging on (rank, deadline, priority, id) if lists get busy enough for that to matter.
+export async function pageTasks(orgId: string, p: TaskParams, today: string, offset: number, limit: number) {
+  const pattern = p.q && contains(p.q)
+  const [from, to] = monthRange(p.month ?? today.slice(0, 7))
+  const where = and(
+    eq(task.organizationId, orgId),
+    inArray(task.projectId, liveProjects(orgId)),
+    isNull(task.parentId),
+    p.projectId ? eq(task.projectId, p.projectId) : undefined,
+    p.person ? eq(task.assigneeId, p.person) : undefined,
+    pattern
+      ? or(
+          ilike(task.title, pattern),
+          inArray(task.projectId, db.select({ id: project.id }).from(project).where(ilike(project.name, pattern))),
+          inArray(task.assigneeId, db.select({ id: user.id }).from(user).where(ilike(user.name, pattern)))
+        )
+      : undefined,
+    p.view === "board"
+      ? or(ne(task.status, "completed"), gt(task.completedAt, new Date(Date.parse(today) - WEEK_MS)))
+      : p.status === "open"
+        ? ne(task.status, "completed")
+        : p.status === "active"
+          ? inArray(task.status, ACTIVE)
+          : p.status === "done"
+            ? eq(task.status, "completed")
+            : undefined,
+    p.view === "calendar" ? or(and(gte(task.deadline, from), lt(task.deadline, to)), isNull(task.deadline)) : undefined
+  )
+  const [rows, total] = await Promise.all([
+    db.query.task.findMany({
+      columns: { description: false },
+      extras: (t, { sql }) => ({ body: sql<string | null>`substr(${t.description}, 1, 1200)`.as("body") }),
+      where,
+      with: taskWith,
+      orderBy: (t, { asc }) =>
+        p.status === "done" && p.view !== "board"
+          ? [sql`${t.completedAt} desc nulls last`, asc(t.id)]
+          : [
+              sql`case when ${t.deadline} is null then 2 when ${t.deadline} >= ${today} then 1 when ${t.status} = 'completed' then 3 else 0 end`,
+              sql`case when ${t.deadline} < ${today} and ${t.status} = 'completed' then ${t.deadline} end desc nulls last`,
+              asc(t.deadline),
+              sql`case ${t.priority} when 'urgent' then 0 when 'normal' then 1 else 2 end`,
+              asc(t.id),
+            ],
+      // ponytail: the calendar reads its whole month (and undated work) up to CALENDAR_MAX, no paging.
+      offset: p.view === "calendar" ? 0 : offset,
+      limit: p.view === "calendar" ? CALENDAR_MAX : limit,
+    }),
+    db.$count(task, where),
+  ])
+  return { rows, total }
+}
+export type PagedTaskRow = Awaited<ReturnType<typeof pageTasks>>["rows"][number]
 
 // Just enough to find a task by name from the command menu.
 export function taskIndex(orgId: string) {
@@ -81,7 +153,7 @@ export function taskIndex(orgId: string) {
 }
 export type TaskIndexRow = Awaited<ReturnType<typeof taskIndex>>[number]
 
-// Cached: a task page's generateMetadata and the page itself both read it.
+// Cached: a task page's generateMetadata and the page itself both read it. Comments come from taskComments.
 export const getTask = cache(async (orgId: string, id: string) =>
   db.query.task.findFirst({
     where: and(eq(task.organizationId, orgId), eq(task.id, id)),
@@ -89,14 +161,43 @@ export const getTask = cache(async (orgId: string, id: string) =>
       project: true,
       assignee: { columns: { id: true, name: true, image: true } },
       release: true,
-      subtasks: { orderBy: [asc(subtask.position), asc(subtask.createdAt)] },
-      comments: {
-        orderBy: asc(comment.createdAt),
-        with: { author: { columns: { id: true, name: true, image: true } } },
+      parent: { columns: { id: true, title: true } },
+      subtasks: {
+        orderBy: asc(task.createdAt),
+        columns: { id: true, title: true, status: true, priority: true, deadline: true },
+        with: { assignee: { columns: { id: true, name: true, image: true } }, subtasks: { columns: { id: true } } },
       },
     },
   })
 )
+
+export const COMMENT_PAGE = 20
+
+// A task's comments, newest first from `offset` (the task page shows the latest page), with the total.
+export async function taskComments(orgId: string, taskId: string, offset = 0, limit = COMMENT_PAGE) {
+  const where = and(eq(comment.taskId, taskId), inArray(comment.taskId, db.select({ id: task.id }).from(task).where(eq(task.organizationId, orgId))))
+  const [rows, total] = await Promise.all([
+    db.query.comment.findMany({
+      where,
+      orderBy: [desc(comment.createdAt), desc(comment.id)],
+      offset,
+      limit,
+      with: { author: { columns: { id: true, name: true, image: true } } },
+    }),
+    db.$count(comment, where),
+  ])
+  return { rows: rows.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt.toISOString(), author: c.author })), total }
+}
+
+// Every task's place in the tree, for the task page's contents (ancestors and the whole family under the root).
+// ponytail: the whole workspace in one read; switch to a recursive CTE if workspaces reach thousands of tasks.
+export function taskTree(orgId: string) {
+  return db
+    .select({ id: task.id, parentId: task.parentId, title: task.title, status: task.status })
+    .from(task)
+    .where(eq(task.organizationId, orgId))
+    .orderBy(asc(task.createdAt))
+}
 
 export function recentActivity(orgId: string, limit = 8, actorId?: string) {
   return db
@@ -164,19 +265,29 @@ export async function unreportedCounts(orgId: string) {
   return new Map(rows.map((r) => [r.projectId, r.n]))
 }
 
-export function clientUpdates(orgId: string, projectId: string) {
-  return db
-    .select({
-      id: clientUpdate.id,
-      message: clientUpdate.message,
-      itemCount: clientUpdate.itemCount,
-      createdAt: clientUpdate.createdAt,
-      sentBy: user.name,
-    })
-    .from(clientUpdate)
-    .leftJoin(user, eq(user.id, clientUpdate.sentById))
-    .where(and(eq(clientUpdate.organizationId, orgId), eq(clientUpdate.projectId, projectId)))
-    .orderBy(desc(clientUpdate.createdAt))
+export const UPDATE_PAGE = 20
+
+// Updates sent to a project's client, newest first from `offset`, with the total.
+export async function clientUpdates(orgId: string, projectId: string, offset = 0, limit = UPDATE_PAGE) {
+  const where = and(eq(clientUpdate.organizationId, orgId), eq(clientUpdate.projectId, projectId))
+  const [rows, total] = await Promise.all([
+    db
+      .select({
+        id: clientUpdate.id,
+        message: clientUpdate.message,
+        itemCount: clientUpdate.itemCount,
+        createdAt: clientUpdate.createdAt,
+        sentBy: user.name,
+      })
+      .from(clientUpdate)
+      .leftJoin(user, eq(user.id, clientUpdate.sentById))
+      .where(where)
+      .orderBy(desc(clientUpdate.createdAt), desc(clientUpdate.id))
+      .offset(offset)
+      .limit(limit),
+    db.$count(clientUpdate, where),
+  ])
+  return { rows: rows.map(({ createdAt, ...r }) => ({ ...r, when: dateTime(createdAt) })), total }
 }
 
 export function activeShareLink(orgId: string) {
@@ -279,17 +390,77 @@ export function bannerMeetings(rows: MeetingRow[], viewer: Viewer) {
   }))
 }
 
-// Every point but the screenshot bytes, newest first. ponytail: last 500, page it if teams outgrow that.
-export function listFeedback(orgId: string) {
-  return db.query.feedback.findMany({
+type Me = { orgId: string; role: string; user: { id: string } }
+
+// What's left to fix on each Feedback tab. Cached per request: the page reads it to pick its first tab.
+export const openFeedback = cache(async (orgId: string, userId: string) => {
+  const [open] = await db
+    .select({
+      mine: sql<number>`count(*) filter (where ${feedback.recipientId} = ${userId})`.mapWith(Number),
+      given: sql<number>`count(*) filter (where ${feedback.authorId} = ${userId})`.mapWith(Number),
+      all: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(feedback)
+    .where(and(eq(feedback.organizationId, orgId), isNull(feedback.resolvedAt)))
+  return open as Record<FeedbackWho, number>
+})
+
+// A page of feedback points (never the screenshot bytes), newest first: for me, from me or everyone, open or fixed.
+export async function feedbackPage(me: Me, who: FeedbackWho, fixed: boolean, offset: number, limit: number) {
+  const where = and(
+    eq(feedback.organizationId, me.orgId),
+    who === "mine" ? eq(feedback.recipientId, me.user.id) : who === "given" ? eq(feedback.authorId, me.user.id) : undefined,
+    fixed ? isNotNull(feedback.resolvedAt) : isNull(feedback.resolvedAt)
+  )
+  const [rows, total, open] = await Promise.all([
+    db.query.feedback.findMany({
+      columns: { image: false },
+      where,
+      with: FEEDBACK_WITH,
+      orderBy: [desc(feedback.createdAt), desc(feedback.id)],
+      offset,
+      limit,
+    }),
+    db.$count(feedback, where),
+    openFeedback(me.orgId, me.user.id),
+  ])
+  return { rows: rows.map((f) => toFeedbackItem(me, f)), total, open }
+}
+
+// One point for its own page, or null when it isn't in this workspace. Cached per request (metadata + page).
+export const getFeedback = cache(async (me: Me, id: string) => {
+  const f = await db.query.feedback.findFirst({
     columns: { image: false },
-    where: eq(feedback.organizationId, orgId),
-    with: {
-      task: { columns: { id: true, title: true }, with: { project: { columns: { name: true, color: true } } } },
-      author: { columns: { id: true, name: true, image: true } },
-      recipient: { columns: { id: true, name: true, image: true } },
-    },
-    orderBy: desc(feedback.createdAt),
-    limit: 500,
+    where: and(eq(feedback.id, id), eq(feedback.organizationId, me.orgId)),
+    with: FEEDBACK_WITH,
   })
+  return f ? toFeedbackItem(me, f) : null
+})
+
+const FEEDBACK_WITH = {
+  task: { columns: { id: true, title: true }, with: { project: { columns: { name: true, color: true } } } },
+  author: { columns: { id: true, name: true, image: true } },
+  recipient: { columns: { id: true, name: true, image: true } },
+} as const
+
+type Person = { id: string; name: string; image: string | null }
+function toFeedbackItem(
+  me: Me,
+  f: Omit<typeof feedback.$inferSelect, "image"> & {
+    task: { id: string; title: string; project: { name: string; color: string } } | null
+    author: Person | null
+    recipient: Person | null
+  }
+): FeedbackItem {
+  return {
+    id: f.id,
+    body: f.body,
+    hasImage: !!f.imageType,
+    resolved: !!f.resolvedAt,
+    when: ago(f.createdAt),
+    task: f.task && { id: f.task.id, title: f.task.title, color: f.task.project.color, project: f.task.project.name },
+    author: f.author,
+    recipient: f.recipient,
+    canDelete: f.authorId === me.user.id || me.role !== "member",
+  }
 }

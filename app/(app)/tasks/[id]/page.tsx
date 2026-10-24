@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 
-import { Reveal } from "@/components/motion-bits"
+import { PageTransition, Reveal } from "@/components/motion-bits"
 import { TaskDetail } from "@/components/task-detail"
 import { getTask } from "@/lib/queries"
 import { requireMember } from "@/lib/session"
@@ -19,8 +19,10 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
   if (!detail) notFound()
 
   return (
-    <Reveal className="mx-auto w-full max-w-3xl">
-      <TaskDetail {...detail} />
-    </Reveal>
+    <PageTransition>
+      <Reveal className="w-full">
+        <TaskDetail {...detail} />
+      </Reveal>
+    </PageTransition>
   )
 }

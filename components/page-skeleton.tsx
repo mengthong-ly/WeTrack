@@ -30,6 +30,45 @@ export function PageSkeleton({ tiles = true }: { tiles?: boolean }) {
   )
 }
 
+/** A focus page (task, New task, Give feedback): the breadcrumb, the document and the side panel. `data-focus` hides the
+ *  app header and rail as the page itself does, so moving between tasks never brings them back for a moment.
+ *  `contents` adds the task family outline's column (wide screens), there when you move between sub-tasks. */
+export function FocusSkeleton({ contents = false }: { contents?: boolean }) {
+  return (
+    <div data-focus="" className={cn("flex flex-col gap-6", appear)} role="status" aria-label="Loading">
+      <div className="flex items-center justify-between gap-2">
+        <Skeleton className={cn("h-11 w-64 max-w-full rounded-full bg-card/70", bone)} />
+        <Skeleton className={cn("size-11 rounded-full bg-card/70", bone)} />
+      </div>
+      <div className="@container">
+        <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
+          {contents && (
+            <div className="hidden w-56 shrink-0 flex-col gap-1 @6xl:flex">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className={cn("h-9 rounded-row bg-card/60", bone)} />
+              ))}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-1 flex-col rounded-tile bg-card px-5 py-6 shadow-sm sm:px-10 sm:py-9">
+            <Skeleton className={cn("h-11 w-2/3 rounded-full sm:h-12", bone)} />
+            <Skeleton className={cn("mt-4 h-4 w-1/2 rounded-full", bone)} />
+            <div className="my-6 h-px bg-foreground/5" />
+            <div className="flex flex-col gap-2.5">
+              <Skeleton className={cn("h-4 w-full rounded-full", bone)} />
+              <Skeleton className={cn("h-4 w-5/6 rounded-full", bone)} />
+              <Skeleton className={cn("h-4 w-2/3 rounded-full", bone)} />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 rounded-panel bg-card p-2 shadow-sm @4xl:w-72 @4xl:shrink-0">
+            <Skeleton className={cn("h-9 rounded-full bg-muted/60", bone)} />
+            <Skeleton className={cn("h-72 rounded-row bg-muted/60", bone)} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** A task's detail (the workspace's task sheet): title, a properties panel, the description. */
 export function DetailSkeleton() {
   return (

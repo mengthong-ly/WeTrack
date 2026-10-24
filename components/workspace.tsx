@@ -19,9 +19,8 @@ import { toast } from "sonner"
 
 import { archiveProject, restoreProject, updateProject, updateTask } from "@/app/actions"
 import { HealthBadge, ProjectDot, UserAvatar } from "@/components/bits"
-import { NEW_TASK_EVENT } from "@/components/command-menu"
+import { NEW_TASK_EVENT, type NewTaskPreset } from "@/components/command-menu"
 import { CountUp, ProgressBar } from "@/components/motion-bits"
-import type { NewTaskPreset } from "@/components/new-task-dialog"
 import { NewProject } from "@/components/new-project"
 import { PillTabs } from "@/components/pill-tabs"
 import { ProjectScene, type SceneMove, type ScenePick } from "@/components/project-scene"
@@ -193,7 +192,7 @@ export function Workspace({
     <>
       <h1 className="sr-only">Workspace</h1>
       {/* Fills the screen under the header; the header and the dock sit above it. */}
-      <div className="fixed inset-x-0 top-20 bottom-0 sm:top-24">
+      <div className="fixed inset-x-0 top-20 bottom-0 sm:top-24 lg:left-24">
         <ProjectScene
           data={scene}
           chrome="page"

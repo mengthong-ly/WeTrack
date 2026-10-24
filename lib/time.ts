@@ -17,3 +17,8 @@ export function ago(date: Date, now = new Date()) {
   }
   return "just now"
 }
+
+// "23 Oct 2026, 14:05", in the team's time zone.
+export function dateTime(date: Date) {
+  return date.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ })
+}

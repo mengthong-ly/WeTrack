@@ -5,11 +5,13 @@ import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { sendClientUpdate } from "@/app/actions"
+import { LoadMore } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
 import { CopyButton } from "@/components/share-link-card"
 import { Button } from "@/components/ui/button"
 import { BUCKETS, draftMessage, type UpdateItem } from "@/lib/client-update"
 import { formatDate } from "@/lib/labels"
+import { useFeed } from "@/lib/use-server-list"
 import { cn } from "@/lib/utils"
 
 export function ClientUpdateComposer({
@@ -192,6 +194,34 @@ export function ClientUpdateComposer({
           items leave the list.
         </p>
       </div>
+    </div>
+  )
+}
+
+export type SentUpdate = { id: string; when: string; itemCount: number; sentBy: string | null; message: string }
+
+// Updates already sent to the client, newest first; older ones load on demand.
+export function UpdateHistory({ projectId, latest, total }: { projectId: string; latest: SentUpdate[]; total: number }) {
+  const { rows, left, more, pending } = useFeed(latest, total, `/api/projects/${projectId}/updates`)
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-2">
+        {rows.map((h) => (
+          <li key={h.id}>
+            <details className="group rounded-row bg-muted/70 px-4 py-3.5">
+              <summary className="flex cursor-pointer list-none items-baseline justify-between gap-3">
+                <span>{h.when}</span>
+                <span className="text-sm text-muted-foreground">
+                  {h.itemCount} item{h.itemCount === 1 ? "" : "s"} · {h.sentBy ?? "Former member"}
+                </span>
+              </summary>
+              <p className="mt-3 text-sm whitespace-pre-wrap text-muted-foreground">{h.message}</p>
+            </details>
+          </li>
+        ))}
+        {rows.length === 0 && <li className="text-sm text-muted-foreground">Sent updates will be listed here.</li>}
+      </ul>
+      <LoadMore left={left} pending={pending} onClick={more} label="Show older" className="bg-muted/60 ring-0 backdrop-blur-none hover:bg-muted" />
     </div>
   )
 }

@@ -10,7 +10,7 @@ import { createHash } from "node:crypto"
 import { sql } from "drizzle-orm"
 
 import { db } from "../lib/db"
-import { activity, member, organization, project, shareLink, subtask, task, user } from "../lib/db/schema"
+import { activity, member, organization, project, shareLink, task, user } from "../lib/db/schema"
 import type { TaskPriority, TaskStatus } from "../lib/db/enums"
 
 if (!/demo/.test(new URL(process.env.DATABASE_URL!).pathname)) throw new Error("DATABASE_URL must point at a *demo* database.")
@@ -92,10 +92,19 @@ for (const [title, proj, assigneeId, status, priority, due, progress, quiet] of 
   // $onUpdate stamps updatedAt on insert too, so backdate it afterwards for "gone quiet" tasks.
   await db.execute(sql`update task set updated_at = ${ago(quiet).toISOString()} where id = ${t.id}`)
   if (status === "in_progress" || status === "review") {
-    await db.insert(subtask).values([
-      { taskId: t.id, title: "Build it", done: true, position: 0 },
-      { taskId: t.id, title: "Review with the client", done: status === "review", position: 1 },
-      { taskId: t.id, title: "Ship to staging", done: false, position: 2 },
+    const child = (title: string, done: boolean, i: number) => ({
+      organizationId: org.id,
+      projectId: P[proj],
+      parentId: t.id,
+      title,
+      status: done ? ("completed" as const) : ("not_started" as const),
+      progress: done ? 100 : 0,
+      createdAt: new Date(ago(quiet + 10).getTime() + i),
+    })
+    await db.insert(task).values([
+      child("Build it", true, 0),
+      child("Review with the client", status === "review", 1),
+      child("Ship to staging", false, 2),
     ])
   }
   await db.insert(activity).values({
