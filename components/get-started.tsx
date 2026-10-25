@@ -4,24 +4,24 @@ import { motion } from "motion/react"
 import { useState, useTransition } from "react"
 
 import { createWorkspace, joinWithCode } from "@/app/actions"
+import { AuthHeading, authButton, authField } from "@/components/auth-form"
 import { PillTabs } from "@/components/pill-tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Spinner } from "@/components/ui/spinner"
 import { authClient } from "@/lib/auth-client"
 import { formatJoinCode } from "@/lib/join-code"
+import { cn } from "@/lib/utils"
 
 // Signed in, not in a team yet: the only two ways forward.
 export function GetStarted({ email }: { email: string }) {
   const [tab, setTab] = useState<"join" | "create">("join")
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-medium">Get started</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Join your team with its code, or start a new one.</p>
-      </div>
+    <div className="flex flex-col gap-8">
+      <AuthHeading title="Get started">Join your team with its code, or start a new one.</AuthHeading>
       <PillTabs
         id="get-started"
-        className="grid grid-cols-2 bg-muted ring-0"
+        className="grid grid-cols-2"
         items={[
           { key: "join", label: "Join a team", active: tab === "join", onSelect: () => setTab("join") },
           { key: "create", label: "Create a team", active: tab === "create", onSelect: () => setTab("create") },
@@ -73,11 +73,12 @@ function JoinForm() {
         autoCapitalize="characters"
         spellCheck={false}
         aria-invalid={!!error}
-        className="h-12 text-center font-mono text-lg tracking-widest md:text-lg"
+        className={cn(authField, "h-12 text-center font-mono text-lg tracking-widest md:text-lg")}
       />
-      <p className="text-xs text-muted-foreground">Ask your team&apos;s owner or an admin for it.</p>
-      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-      <Button type="submit" size="lg" className="h-10" disabled={pending}>
+      <p className="pl-4 text-xs text-muted-foreground">Ask your team&apos;s owner or an admin for it.</p>
+      {error && <p className="pl-4 text-sm text-destructive" role="alert">{error}</p>}
+      <Button type="submit" size="lg" className={authButton} disabled={pending}>
+        {pending && <Spinner aria-hidden />}
         {pending ? "Joining…" : "Join team"}
       </Button>
     </form>
@@ -92,10 +93,11 @@ function CreateForm() {
       className="flex flex-col gap-3"
       action={(form) => start(async () => setError((await createWorkspace(String(form.get("name")))).error))}
     >
-      <Input name="name" aria-label="Team name" placeholder="WeShop" required minLength={2} autoFocus className="h-12" />
-      <p className="text-xs text-muted-foreground">Usually your team or company. You&apos;ll be its owner.</p>
-      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-      <Button type="submit" size="lg" className="h-10" disabled={pending}>
+      <Input name="name" aria-label="Team name" placeholder="WeShop" required minLength={2} autoFocus className={cn(authField, "h-12")} />
+      <p className="pl-4 text-xs text-muted-foreground">Usually your team or company. You&apos;ll be its owner.</p>
+      {error && <p className="pl-4 text-sm text-destructive" role="alert">{error}</p>}
+      <Button type="submit" size="lg" className={authButton} disabled={pending}>
+        {pending && <Spinner aria-hidden />}
         {pending ? "Creating…" : "Create team"}
       </Button>
     </form>

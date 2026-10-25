@@ -24,7 +24,8 @@ export default async function HomePage() {
   const mine = tasks.filter((t) => t.assigneeId === me.user.id)
 
   const s = summarize(mine, today)
-  const next = [...s.focus, ...s.upNext].slice(0, 7)
+  // One task you're on, then a short line-per-task queue, so Home fits on one screen without scrolling.
+  const [now, ...upNext] = [...s.focus, ...s.upNext].slice(0, 5).map((t) => toCard(t, today))
 
   const facts = [
     { n: s.focus.length, label: "in progress" },
@@ -50,27 +51,36 @@ export default async function HomePage() {
         </p>
       </Reveal>
 
-      <Reveal index={1} className="rounded-sheet bg-card p-3 shadow-sm sm:p-4">
-        <div className="flex items-baseline justify-between px-3 pt-2 pb-3">
-          <h2 className="text-lg">Continue</h2>
-          <Link href="/tasks" className="text-sm text-muted-foreground hover:text-foreground">All tasks</Link>
-        </div>
-        <TaskList
-          tasks={next.map((t) => toCard(t, today))}
-          empty={<p className="rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground">Nothing on your plate. Press C to add a task.</p>}
-        />
-      </Reveal>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
+        <Reveal index={1} className="rounded-sheet bg-card p-3 shadow-sm sm:p-4">
+          <div className="flex items-baseline justify-between px-3 pt-2 pb-3">
+            <h2 className="text-lg">Continue</h2>
+            <Link href="/tasks" className="text-sm text-muted-foreground hover:text-foreground">All tasks</Link>
+          </div>
+          <TaskList
+            tasks={now ? [now] : []}
+            empty={<p className="rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground">Nothing on your plate. Press C to add a task.</p>}
+          />
+          {upNext.length > 0 && (
+            <>
+              <h3 className="px-3 pt-5 pb-2 text-sm text-muted-foreground">Up next</h3>
+              <TaskList compact tasks={upNext} />
+            </>
+          )}
+        </Reveal>
 
-      {/* Your meetings this week, so ones without a task can be sent to Slack or cancelled too. */}
-      {meetings.length > 0 && (
+        {/* Your meetings this week, so ones without a task can be sent to Slack or cancelled too. Always shown, so New meeting is too. */}
         <Reveal index={2} className="rounded-sheet bg-card p-3 shadow-sm sm:p-4">
           <div className="flex items-baseline justify-between px-3 pt-2 pb-3">
             <h2 className="text-lg">Meetings</h2>
             <NewMeetingButton />
           </div>
-          <MeetingList meetings={meetingItems(meetings, members, { userId: me.user.id, email: me.user.email, role: me.role })} />
+          <MeetingList
+            meetings={meetingItems(meetings, members, { userId: me.user.id, email: me.user.email, role: me.role })}
+            empty={<p className="rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground">No meetings this week. Schedule one with New meeting.</p>}
+          />
         </Reveal>
-      )}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarIcon, ListChecksIcon } from "lucide-react"
+import { CalendarIcon, FlagIcon, ListChecksIcon } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import Link from "next/link"
 import { useOptimistic, useTransition } from "react"
@@ -15,7 +15,7 @@ import {
 } from "@/components/bits"
 import { ProgressBar, spring } from "@/components/motion-bits"
 import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
-import { formatDate, HEALTH } from "@/lib/labels"
+import { formatDate, HEALTH, PRIORITY } from "@/lib/labels"
 import type { Health } from "@/lib/schedule"
 import { cn } from "@/lib/utils"
 
@@ -37,10 +37,12 @@ export function TaskCard({
   task,
   index = 0,
   readOnly = false,
+  compact = false,
 }: {
   task: TaskCardData
   index?: number
   readOnly?: boolean
+  compact?: boolean
 }) {
   const [, start] = useTransition()
   const [done, setDone] = useOptimistic(task.status === "completed")
@@ -57,13 +59,53 @@ export function TaskCard({
     })
   }
 
+  const motionProps = {
+    layout: true,
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, scale: 0.97, transition: { duration: 0.18 } },
+    transition: { ...spring, delay: Math.min(index, 8) * 0.035 },
+  }
+  const late = !done && (task.health === "overdue" || task.health === "due_soon")
+
+  // One line per task, for the quieter "Up next" list under the task you're on.
+  if (compact)
+    return (
+      <motion.li
+        {...motionProps}
+        className="group relative flex items-center gap-3 rounded-row bg-muted/60 py-2.5 pr-4 pl-3 transition-colors hover:bg-muted"
+      >
+        <Check done={done} readOnly={readOnly} onToggle={toggle} />
+        <FlagIcon aria-label={PRIORITY[task.priority].label} className={cn("size-3.5 shrink-0 fill-current", PRIORITY[task.priority].className)} />
+        {readOnly ? (
+          <span className={cn("min-w-0 flex-1 truncate", done && "text-muted-foreground line-through decoration-foreground/30")}>{task.title}</span>
+        ) : (
+          <Link
+            href={`/tasks/${task.id}`}
+            className={cn(
+              "min-w-0 flex-1 truncate after:absolute after:inset-0 after:rounded-row",
+              done && "text-muted-foreground line-through decoration-foreground/30"
+            )}
+          >
+            {task.title}
+          </Link>
+        )}
+        <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
+          <ProjectDot color={task.project.color} />
+          {task.project.name}
+        </span>
+        {task.deadline && (
+          <span className={cn("shrink-0 text-xs text-muted-foreground tabular", late && health.className)}>
+            {formatDate(task.deadline)}
+          </span>
+        )}
+        <StatusText status={done ? "completed" : task.status} className="hidden shrink-0 text-xs sm:inline" />
+      </motion.li>
+    )
+
   return (
     <motion.li
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
-      transition={{ ...spring, delay: Math.min(index, 8) * 0.035 }}
+      {...motionProps}
       className="group relative rounded-card bg-muted/80 p-4 transition-colors hover:bg-muted sm:p-5"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
@@ -91,60 +133,7 @@ export function TaskCard({
       </div>
 
       <div className="mt-3 flex items-start gap-3">
-        {readOnly ? (
-          <span
-            aria-hidden
-            className={cn(
-              "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px]",
-              done
-                ? "border-foreground bg-foreground text-background"
-                : "border-foreground/30"
-            )}
-          >
-            {done && (
-              <svg viewBox="0 0 24 24" className="size-3.5" fill="none">
-                <path
-                  d="M5 12.5l4.5 4.5L19 7.5"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label={done ? "Mark as not done" : "Mark as done"}
-            aria-pressed={done}
-            className="relative z-10 mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground/30 transition-colors hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-          >
-            <motion.span
-              className="absolute inset-0 rounded-full bg-foreground"
-              initial={false}
-              animate={{ scale: done ? 1 : 0 }}
-              transition={spring}
-            />
-            <motion.svg
-              viewBox="0 0 24 24"
-              className="relative size-3.5 text-background"
-              fill="none"
-            >
-              <motion.path
-                d="M5 12.5l4.5 4.5L19 7.5"
-                stroke="currentColor"
-                strokeWidth={3}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={false}
-                animate={{ pathLength: done ? 1 : 0 }}
-                transition={{ duration: 0.25, delay: done ? 0.08 : 0 }}
-              />
-            </motion.svg>
-          </button>
-        )}
+        <Check done={done} readOnly={readOnly} onToggle={toggle} />
         <div className="min-w-0 flex-1">
           {readOnly ? (
             <span
@@ -197,21 +186,85 @@ export function TaskCard({
   )
 }
 
+// The round done checkbox, shared by the full card and the compact row.
+function Check({ done, readOnly, onToggle }: { done: boolean; readOnly: boolean; onToggle: () => void }) {
+  return (
+    <>
+    {readOnly ? (
+      <span
+        aria-hidden
+        className={cn(
+          "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px]",
+          done
+            ? "border-foreground bg-foreground text-background"
+            : "border-foreground/30"
+        )}
+      >
+        {done && (
+          <svg viewBox="0 0 24 24" className="size-3.5" fill="none">
+            <path
+              d="M5 12.5l4.5 4.5L19 7.5"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
+    ) : (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={done ? "Mark as not done" : "Mark as done"}
+        aria-pressed={done}
+        className="relative z-10 mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground/30 transition-colors hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+      >
+        <motion.span
+          className="absolute inset-0 rounded-full bg-foreground"
+          initial={false}
+          animate={{ scale: done ? 1 : 0 }}
+          transition={spring}
+        />
+        <motion.svg
+          viewBox="0 0 24 24"
+          className="relative size-3.5 text-background"
+          fill="none"
+        >
+          <motion.path
+            d="M5 12.5l4.5 4.5L19 7.5"
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            initial={false}
+            animate={{ pathLength: done ? 1 : 0 }}
+            transition={{ duration: 0.25, delay: done ? 0.08 : 0 }}
+          />
+        </motion.svg>
+      </button>
+    )}
+    </>
+  )
+}
+
 export function TaskList({
   tasks,
   empty,
   readOnly,
+  compact,
 }: {
   tasks: TaskCardData[]
   empty?: React.ReactNode
   readOnly?: boolean
+  compact?: boolean
 }) {
   if (tasks.length === 0) return <>{empty}</>
   return (
-    <motion.ul layout className="relative flex flex-col gap-2.5">
+    <motion.ul layout className={cn("relative flex flex-col", compact ? "gap-1.5" : "gap-2.5")}>
       <AnimatePresence mode="popLayout" initial={false}>
         {tasks.map((t, i) => (
-          <TaskCard key={t.id} task={t} index={i} readOnly={readOnly} />
+          <TaskCard key={t.id} task={t} index={i} readOnly={readOnly} compact={compact} />
         ))}
       </AnimatePresence>
     </motion.ul>

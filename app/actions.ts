@@ -32,7 +32,6 @@ import {
   joinUrl,
   LEAD_MINUTES,
   meetingSlot,
-  parseEmails,
   slackCancelled,
   slackMeetingCard,
 } from "@/lib/meetings"
@@ -527,7 +526,6 @@ const meetingInput = z.object({
   start: z.string().regex(HHMM, "Pick a start and end time."),
   end: z.string().regex(HHMM, "Pick a start and end time."),
   memberIds: z.array(z.string()).max(50, "Invite up to 50 people."),
-  guests: z.string().max(2000, "That guest list is too long."),
   taskId: z.string().nullable(),
   description: z.string().trim().max(2000, "Keep the description under 2000 characters.").optional(),
   postToSlack: z.boolean().default(true),
@@ -539,7 +537,7 @@ export async function createMeeting(
   const me = await requireMember()
   const parsed = meetingInput.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  const { title, date, start, end, memberIds, guests, taskId, description, postToSlack } = parsed.data
+  const { title, date, start, end, memberIds, taskId, description, postToSlack } = parsed.data
 
   const zone = tz()
   const slot = meetingSlot(date, start, end, zone)
@@ -556,12 +554,9 @@ export async function createMeeting(
     : []
   if (members.length !== ids.length) return { error: "Someone you picked isn't in this workspace." }
 
-  const parsedGuests = parseEmails(guests)
-  if (parsedGuests.invalid.length) return { error: `Check these emails: ${parsedGuests.invalid.join(", ")}` }
-
   // The organizer is stored as an attendee so "meetings I'm in" matches by email.
   const myEmail = me.user.email.toLowerCase()
-  const emails = [...new Set([myEmail, ...members.map((m) => m.email.toLowerCase()), ...parsedGuests.emails])]
+  const emails = [...new Set([myEmail, ...members.map((m) => m.email.toLowerCase())])]
   if (emails.length > 50) return { error: "Invite up to 50 people." }
 
   const t = taskId ? await ownTask(me.orgId, taskId) : undefined
@@ -624,7 +619,7 @@ export async function createMeeting(
 
   let warning: string | undefined
   try {
-    const names = [me.user.name, ...members.map((m) => m.name), ...parsedGuests.emails]
+    const names = [me.user.name, ...members.map((m) => m.name)]
     if (postToSlack) await postSlack(me.orgId, slackMeetingCard(row, me.user.name, zone, [...new Set(names)]))
   } catch {
     console.error("Slack post failed: meeting created")

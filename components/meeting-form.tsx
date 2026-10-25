@@ -1,7 +1,7 @@
 "use client"
 
 import { addMinutes, format, isToday, isTomorrow, startOfDay } from "date-fns"
-import { ArrowUpIcon, CalendarIcon, ClockIcon, type LucideIcon, MailIcon, UsersIcon } from "lucide-react"
+import { ArrowUpIcon, CalendarIcon, ClockIcon, type LucideIcon, UsersIcon } from "lucide-react"
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
@@ -93,7 +93,6 @@ export function MeetingForm({
   const [startAt, setStartAt] = useState(initial.start)
   const [endAt, setEndAt] = useState(initial.end)
   const [people, setPeople] = useState<string[]>([meId])
-  const [guests, setGuests] = useState("")
   const [description, setDescription] = useState("")
   const [toSlack, setToSlack] = useState(true)
 
@@ -119,7 +118,6 @@ export function MeetingForm({
         start: startAt,
         end: endAt,
         memberIds: people,
-        guests,
         taskId: prefill.taskId ?? null,
         description,
         postToSlack: slackConnected && toSlack,
@@ -227,17 +225,6 @@ export function MeetingForm({
         </Prop>
         <Prop icon={ClockIcon} label="End">
           <Input type="time" step={300} required aria-label="End time" value={endAt} onChange={(e) => setEndAt(e.target.value)} className={cn(field, "tabular")} />
-        </Prop>
-        <Prop icon={MailIcon} label="Guests" className="sm:col-span-2">
-          <Input
-            type="text"
-            inputMode="email"
-            aria-label="Guest emails"
-            value={guests}
-            onChange={(e) => setGuests(e.target.value)}
-            placeholder="ceo@company.com, …"
-            className={field}
-          />
         </Prop>
       </div>
       {error && <p className="px-6 pt-3 text-sm text-destructive" role="alert">{error}</p>}

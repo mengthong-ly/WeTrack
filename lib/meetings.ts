@@ -74,19 +74,6 @@ export function canJoin(m: { createdById: string | null; attendeeEmails: string[
   )
 }
 
-const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
-
-export function parseEmails(raw: string): { emails: string[]; invalid: string[] } {
-  const emails: string[] = []
-  const invalid: string[] = []
-  for (const t of raw.split(/[\s,]+/).filter(Boolean)) {
-    const list = EMAIL.test(t) ? emails : invalid
-    const v = t.toLowerCase()
-    if (!list.includes(v)) list.push(v)
-  }
-  return { emails, invalid }
-}
-
 function parts(d: Date, tz: string, opts: Intl.DateTimeFormatOptions) {
   return Object.fromEntries(
     new Intl.DateTimeFormat("en-GB", { timeZone: tz, hourCycle: "h23", ...opts })

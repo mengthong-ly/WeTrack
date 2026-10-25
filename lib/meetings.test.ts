@@ -8,7 +8,6 @@ import {
   googleError,
   joinUrl,
   meetingSlot,
-  parseEmails,
   slackCancelled,
   slackCreated,
   slackMeetingCard,
@@ -51,13 +50,6 @@ test("bannerState windows", () => {
 
 test("joinUrl falls back to the calendar link while Meet is pending", () => {
   assert.equal(joinUrl(m({ meetUrl: null })), "https://calendar.google.com/e/1")
-})
-
-test("parseEmails lowercases, dedupes and reports bad ones", () => {
-  assert.deepEqual(parseEmails("CEO@wejobskh.com, ceo@wejobskh.com\nnope"), {
-    emails: ["ceo@wejobskh.com"],
-    invalid: ["nope"],
-  })
 })
 
 test("slack text", () => {
