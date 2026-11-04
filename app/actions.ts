@@ -1,7 +1,7 @@
 "use server"
 
-import { and, eq, gt, inArray, isNull } from "drizzle-orm"
-import { cookies, headers } from "next/headers"
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm"
+import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
@@ -14,9 +14,12 @@ import {
   comment,
   feedback,
   joinCode,
+  logEntry,
   meeting,
   member,
+  notification,
   project,
+  pushSubscription,
   shareLink,
   task,
   TASK_PRIORITIES,
@@ -28,6 +31,7 @@ import {
 import { createEvent, deleteEvent, googleToken } from "@/lib/google"
 import { JOIN_CODE_DAYS, newJoinCode, normalizeJoinCode } from "@/lib/join-code"
 import {
+  formatSlot,
   googleError,
   joinUrl,
   LEAD_MINUTES,
@@ -35,7 +39,9 @@ import {
   slackCancelled,
   slackMeetingCard,
 } from "@/lib/meetings"
-import { LAST_PROJECT_COOKIE } from "@/lib/options"
+import { plainText } from "@/lib/markdown"
+import { isPushEndpoint } from "@/lib/notifications"
+import { notify } from "@/lib/notify"
 import { getSession, requireMember } from "@/lib/session"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { deleteImage, isImage, saveImage } from "@/lib/storage"
@@ -56,6 +62,20 @@ const refresh = () => revalidatePath("/", "layout")
 
 async function log(orgId: string, actorId: string, kind: string, rest: Partial<typeof activity.$inferInsert>) {
   await db.insert(activity).values({ organizationId: orgId, actorId, kind, ...rest })
+}
+
+// Records who did what in the Logs. Called after an action has succeeded; a failure here is logged, never shown,
+// so the log can't break the thing people just did.
+async function audit(
+  actor: { orgId: string; user: { id: string } },
+  action: string,
+  rest: { targetId?: string | null; projectId?: string | null; label?: string | null; data?: Record<string, unknown> } = {}
+) {
+  try {
+    await db.insert(logEntry).values({ organizationId: actor.orgId, actorId: actor.user.id, action, ...rest })
+  } catch (e) {
+    console.error(`Log failed: ${action}`, e)
+  }
 }
 
 async function ownProject(orgId: string, projectId: string) {
@@ -102,6 +122,7 @@ export async function createJoinCode(): Promise<Result> {
     .insert(joinCode)
     .values({ organizationId: me.orgId, ...row })
     .onConflictDoUpdate({ target: joinCode.organizationId, set: row })
+  await audit(me, "join_code.create")
   refresh()
   return {}
 }
@@ -110,6 +131,7 @@ export async function turnOffJoinCode(): Promise<Result> {
   const me = await requireMember()
   if (me.role === "member") return { error: "Only owners and admins can share a join code." }
   await db.delete(joinCode).where(eq(joinCode.organizationId, me.orgId))
+  await audit(me, "join_code.off")
   refresh()
   return {}
 }
@@ -129,6 +151,7 @@ export async function joinWithCode(input: string): Promise<Result> {
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not join the team." }
   }
+  await audit({ orgId: row.organizationId, user: session.user }, "member.join")
   redirect("/")
 }
 
@@ -156,6 +179,7 @@ export async function setMemberRole(userId: string, role: "admin" | "member"): P
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not change the role." }
   }
+  await audit(found.me, "member.role", { targetId: userId, data: { role: parsed.data } })
   refresh()
   return {}
 }
@@ -171,36 +195,81 @@ export async function removeMember(userId: string): Promise<Result> {
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not remove them." }
   }
+  await audit(found.me, "member.remove", { targetId: userId })
   refresh()
   return {}
 }
 
+// Owners and admins rename the team. Better Auth enforces the same rule (lib/auth.ts).
+export async function renameTeam(name: string): Promise<Result> {
+  const me = await requireMember()
+  if (me.role === "member") return { error: "Only owners and admins can rename the team." }
+  const parsed = z.string().trim().min(2).max(60).safeParse(name)
+  if (!parsed.success) return { error: "Team name must be 2–60 characters." }
+  try {
+    await auth.api.updateOrganization({ headers: await headers(), body: { data: { name: parsed.data }, organizationId: me.orgId } })
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not rename the team." }
+  }
+  await audit(me, "team.rename", { data: { name: parsed.data } })
+  refresh()
+  return {}
+}
+
+// Anyone but the owner can leave; their tasks stay as they are. They land on /onboarding to join or start a team.
+export async function leaveTeam(): Promise<Result> {
+  const me = await requireMember()
+  if (me.role === "owner") return { error: "The owner can't leave. Hand the team over first." }
+  try {
+    await auth.api.leaveOrganization({ headers: await headers(), body: { organizationId: me.orgId } })
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not leave the team." }
+  }
+  await audit(me, "team.leave")
+  redirect("/onboarding")
+}
+
 // ---------- Projects ----------
+
+const projectDescription = z.string().trim().max(2000, "Keep the description under 2000 characters.").transform((s) => s || null)
 
 const projectInput = z.object({
   name: z.string().trim().min(1, "Name the project.").max(60),
   color: z.string().regex(/^#[0-9a-f]{6}$/i),
 })
 
-export async function createProject(input: z.input<typeof projectInput>): Promise<Result> {
+// From the /create page: name, colour, an optional description and an optional logo image, as form data.
+export async function createProject(form: FormData): Promise<Result & { id?: string }> {
   const me = await requireMember()
-  const parsed = projectInput.safeParse(input)
+  const parsed = projectInput.safeParse({ name: form.get("name") ?? "", color: form.get("color") ?? "" })
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  await db.insert(project).values({ organizationId: me.orgId, ...parsed.data })
+  const description = projectDescription.safeParse(form.get("description") ?? "")
+  if (!description.success) return { error: description.error.issues[0].message }
+  const logo = form.get("logo")
+  const file = isImage(logo) ? logo : null
+  if (logo instanceof File && logo.size && !file) return { error: "Logos must be images under 4 MB." }
+  const logoId = file && (await saveImage(me.orgId, me.user.id, file))
+  const [row] = await db
+    .insert(project)
+    .values({ organizationId: me.orgId, ...parsed.data, description: description.data, logoId })
+    .returning({ id: project.id })
+  await audit(me, "project.create", { projectId: row.id, targetId: row.id, label: parsed.data.name })
   refresh()
-  return {}
+  return { id: row.id }
 }
 
 // Rename or recolour; either field may be left out.
-const projectPatch = projectInput.partial()
+const projectPatch = projectInput.partial().extend({ description: projectDescription.optional() })
 
 export async function updateProject(projectId: string, patch: z.input<typeof projectPatch>): Promise<Result> {
   const me = await requireMember()
   const parsed = projectPatch.safeParse(patch)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
-  if (!(await ownProject(me.orgId, projectId))) return { error: "Project not found." }
+  const p = await ownProject(me.orgId, projectId)
+  if (!p) return { error: "Project not found." }
   if (!Object.keys(parsed.data).length) return {}
   await db.update(project).set(parsed.data).where(eq(project.id, projectId))
+  await audit(me, "project.update", { projectId, targetId: projectId, label: parsed.data.name ?? p.name, data: { changed: Object.keys(parsed.data) } })
   refresh()
   return {}
 }
@@ -224,14 +293,31 @@ export async function setProjectLogo(projectId: string, form: FormData): Promise
   const logoId = file && (await saveImage(me.orgId, me.user.id, file))
   await db.update(project).set({ logoId }).where(eq(project.id, projectId))
   await deleteImage(p.logoId)
+  await audit(me, "project.logo", { projectId, targetId: projectId, label: p.name, data: { removed: !file } })
   refresh()
   return {}
 }
 
 async function setArchived(projectId: string, archived: boolean): Promise<Result> {
   const me = await requireMember()
-  if (!(await ownProject(me.orgId, projectId))) return { error: "Project not found." }
+  const p = await ownProject(me.orgId, projectId)
+  if (!p) return { error: "Project not found." }
   await db.update(project).set({ archived }).where(eq(project.id, projectId))
+  await audit(me, archived ? "project.archive" : "project.restore", { projectId, targetId: projectId, label: p.name })
+  refresh()
+  return {}
+}
+
+// Deleting is for owners and admins and only from the Archive: it takes the project's tasks, feedback and updates with it.
+export async function deleteProject(projectId: string): Promise<Result> {
+  const me = await requireMember()
+  if (me.role === "member") return { error: "Only owners and admins can delete a project." }
+  const p = await ownProject(me.orgId, projectId)
+  if (!p) return { error: "Project not found." }
+  if (!p.archived) return { error: "Archive the project first." }
+  await db.delete(project).where(eq(project.id, projectId))
+  await deleteImage(p.logoId)
+  await audit(me, "project.delete", { projectId, targetId: projectId, label: p.name })
   refresh()
   return {}
 }
@@ -279,8 +365,8 @@ export async function createTask(
     })
     .returning({ id: task.id })
   await log(me.orgId, me.user.id, "task_created", { projectId: data.projectId, taskId: row.id })
-  const jar = await cookies() // the New task page starts on the project used last
-  jar.set(LAST_PROJECT_COOKIE, data.projectId, { maxAge: 60 * 60 * 24 * 365, httpOnly: true, sameSite: "lax" })
+  await notify({ orgId: me.orgId, actor: me.user, kind: "assigned", to: [data.assigneeId], subject: data.title, taskId: row.id })
+  await audit(me, "task.create", { projectId: data.projectId, targetId: row.id, label: data.title })
   refresh()
   return { id: row.id }
 }
@@ -309,6 +395,10 @@ export async function updateTask(taskId: string, patch: z.input<typeof taskPatch
     .set({ ...data, ...(completedAt !== undefined && { completedAt }) })
     .where(eq(task.id, taskId))
 
+  // Feedback on a task lives in the task's project, so it moves with it.
+  if (data.projectId && data.projectId !== before.projectId)
+    await db.update(feedback).set({ projectId: data.projectId }).where(eq(feedback.taskId, taskId))
+
   const ctx = { projectId: data.projectId ?? before.projectId, taskId }
   if (data.status && data.status !== before.status) {
     await log(me.orgId, me.user.id, data.status === "completed" ? "task_completed" : "status_changed", {
@@ -322,14 +412,33 @@ export async function updateTask(taskId: string, patch: z.input<typeof taskPatch
       data: { from: before.deadline, to: data.deadline },
     })
   }
+
+  // The new assignee hears they have it; whoever owns or made the task hears it moved.
+  const notice = { orgId: me.orgId, actor: me.user, subject: data.title ?? before.title, taskId }
+  const assigneeId = data.assigneeId !== undefined ? data.assigneeId : before.assigneeId
+  const watchers = [assigneeId, before.createdById]
+  if (data.assigneeId && data.assigneeId !== before.assigneeId)
+    await notify({ ...notice, kind: "assigned", to: [data.assigneeId] })
+  if (data.status && data.status !== before.status)
+    await notify({
+      ...notice,
+      kind: data.status === "completed" ? "completed" : "status_changed",
+      to: watchers,
+      data: { from: before.status, to: data.status },
+    })
+  if (data.deadline !== undefined && data.deadline !== before.deadline)
+    await notify({ ...notice, kind: "deadline_changed", to: watchers, data: { from: before.deadline, to: data.deadline } })
+  await audit(me, "task.update", { projectId: ctx.projectId, targetId: taskId, label: data.title ?? before.title, data: { changed: Object.keys(data) } })
   refresh()
   return {}
 }
 
 export async function deleteTask(taskId: string): Promise<Result> {
   const me = await requireMember()
-  if (!(await ownTask(me.orgId, taskId))) return { error: "Task not found." }
+  const t = await ownTask(me.orgId, taskId)
+  if (!t) return { error: "Task not found." }
   await db.delete(task).where(eq(task.id, taskId))
+  await audit(me, "task.delete", { projectId: t.projectId, targetId: taskId, label: t.title })
   refresh()
   return {}
 }
@@ -355,6 +464,7 @@ export async function addSubtask(parentId: string, title: string): Promise<Resul
     })
     .returning({ id: task.id })
   await log(me.orgId, me.user.id, "task_created", { projectId: parent.projectId, taskId: row.id })
+  await audit(me, "task.create", { projectId: parent.projectId, targetId: row.id, label: parsed.data, data: { parentId } })
   refresh()
   return { id: row.id }
 }
@@ -363,8 +473,21 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
   const me = await requireMember()
   const parsed = z.string().trim().min(1).max(5000).safeParse(body)
   if (!parsed.success) return { error: "Write something first." }
-  if (!(await ownTask(me.orgId, taskId))) return { error: "Task not found." }
+  const t = await ownTask(me.orgId, taskId)
+  if (!t) return { error: "Task not found." }
   await db.insert(comment).values({ taskId, authorId: me.user.id, body: parsed.data })
+  // The assignee, the creator and everyone already in the thread.
+  const thread = await db.selectDistinct({ id: comment.authorId }).from(comment).where(eq(comment.taskId, taskId))
+  await notify({
+    orgId: me.orgId,
+    actor: me.user,
+    kind: "commented",
+    to: [t.assigneeId, t.createdById, ...thread.map((c) => c.id)],
+    subject: t.title,
+    taskId,
+    data: { preview: plainText(parsed.data).slice(0, 140) },
+  })
+  await audit(me, "comment.create", { projectId: t.projectId, targetId: taskId, label: t.title })
   refresh()
   return {}
 }
@@ -382,24 +505,41 @@ export async function uploadImage(form: FormData): Promise<Result & { src?: stri
 // ---------- Feedback ----------
 
 // One piece of feedback for a teammate: a note in `body`, its screenshots inline (uploaded as it's written).
-// With a `taskId` it goes to whoever the task is assigned to now; without one, to `recipientId`.
+// With a `taskId` it goes to whoever the task is assigned to now, in the task's project; without one, to
+// `recipientId`, in `projectId` (the project it was given in).
 export async function createFeedback(form: FormData): Promise<Result> {
   const me = await requireMember()
   const taskId = String(form.get("taskId") ?? "")
   const t = taskId ? await ownTask(me.orgId, taskId) : null
   if (taskId && !t) return { error: "That task no longer exists." }
+  const projectId = t?.projectId ?? String(form.get("projectId") ?? "")
+  if (!(await ownProject(me.orgId, projectId))) return { error: "Project not found." }
   const recipientId = t ? t.assigneeId : String(form.get("recipientId") ?? "") || null
   if (!t && !recipientId) return { error: "Pick who it's for, or a task." }
   if (!t && recipientId && !(await isMember(me.orgId, recipientId))) return { error: "Pick someone on the team." }
   const body = String(form.get("body") ?? "").trim().slice(0, 20000)
   if (!body) return { error: "Write a note or add a screenshot." }
-  await db.insert(feedback).values({
-    organizationId: me.orgId,
-    taskId: t?.id ?? null,
-    authorId: me.user.id,
-    recipientId,
-    body,
+  const [row] = await db
+    .insert(feedback)
+    .values({
+      organizationId: me.orgId,
+      projectId,
+      taskId: t?.id ?? null,
+      authorId: me.user.id,
+      recipientId,
+      body,
+    })
+    .returning({ id: feedback.id })
+  await notify({
+    orgId: me.orgId,
+    actor: me.user,
+    kind: "feedback",
+    to: [recipientId],
+    subject: t?.title ?? (plainText(body).slice(0, 140) || null),
+    taskId: t?.id,
+    feedbackId: row.id,
   })
+  await audit(me, "feedback.create", { projectId, targetId: row.id, label: t?.title })
   refresh()
   return {}
 }
@@ -415,6 +555,7 @@ export async function setFeedbackResolved(id: string, resolved: boolean): Promis
   const me = await requireMember()
   if (!(await ownFeedback(me.orgId, id))) return { error: "Feedback not found." }
   await db.update(feedback).set({ resolvedAt: resolved ? new Date() : null }).where(eq(feedback.id, id))
+  await audit(me, resolved ? "feedback.resolve" : "feedback.reopen", { targetId: id })
   refresh()
   return {}
 }
@@ -427,6 +568,7 @@ export async function updateFeedback(id: string, text: string): Promise<Result> 
   const body = text.trim().slice(0, 5000)
   if (!body && !row.imageId) return { error: "Write a note, or delete the feedback." }
   await db.update(feedback).set({ body: body || null }).where(eq(feedback.id, id))
+  await audit(me, "feedback.update", { targetId: id })
   refresh()
   return {}
 }
@@ -438,6 +580,7 @@ export async function deleteFeedback(id: string): Promise<Result> {
   if (row.authorId !== me.user.id && me.role === "member") return { error: "Only the person who wrote it can delete it." }
   await db.delete(feedback).where(eq(feedback.id, id))
   await deleteImage(row.imageId)
+  await audit(me, "feedback.delete", { targetId: id })
   refresh()
   return {}
 }
@@ -455,6 +598,7 @@ export async function setFeedbackImage(id: string, form: FormData): Promise<Resu
   const imageId = file && (await saveImage(me.orgId, me.user.id, file))
   await db.update(feedback).set({ imageId }).where(eq(feedback.id, id))
   await deleteImage(row.imageId)
+  await audit(me, "feedback.image", { targetId: id, data: { removed: !file } })
   refresh()
   return {}
 }
@@ -477,6 +621,7 @@ export async function createShareLink(): Promise<Result & { token?: string }> {
       createdById: me.user.id,
     })
   })
+  await audit(me, "share_link.create")
   refresh()
   return { token }
 }
@@ -488,6 +633,7 @@ export async function revokeShareLink(): Promise<Result> {
     .update(shareLink)
     .set({ revokedAt: new Date() })
     .where(and(eq(shareLink.organizationId, me.orgId), isNull(shareLink.revokedAt)))
+  await audit(me, "share_link.revoke")
   refresh()
   return {}
 }
@@ -511,6 +657,7 @@ export async function setSlackWebhook(url: string | null): Promise<Result> {
     .insert(workspaceIntegration)
     .values({ organizationId: me.orgId, slackWebhookUrl: value })
     .onConflictDoUpdate({ target: workspaceIntegration.organizationId, set: { slackWebhookUrl: value } })
+  await audit(me, url ? "slack.connect" : "slack.disconnect")
   refresh()
   return {}
 }
@@ -547,7 +694,7 @@ export async function createMeeting(
   const ids = [...new Set(memberIds)]
   const members = ids.length
     ? await db
-        .select({ email: user.email, name: user.name })
+        .select({ id: user.id, email: user.email, name: user.name })
         .from(member)
         .innerJoin(user, eq(user.id, member.userId))
         .where(and(eq(member.organizationId, me.orgId), inArray(member.userId, ids)))
@@ -617,6 +764,16 @@ export async function createMeeting(
     return { error: "Couldn't save the meeting. Try again." }
   }
 
+  await notify({
+    orgId: me.orgId,
+    actor: me.user,
+    kind: "meeting_invited",
+    to: members.map((m) => m.id),
+    subject: title,
+    taskId: t?.id,
+    data: { subject: title, preview: formatSlot(slot, zone) },
+  })
+
   let warning: string | undefined
   try {
     const names = [me.user.name, ...members.map((m) => m.name)]
@@ -625,6 +782,7 @@ export async function createMeeting(
     console.error("Slack post failed: meeting created")
     warning = "Meeting created, but Slack didn't get it."
   }
+  await audit(me, "meeting.create", { projectId: t?.projectId, targetId: row.id, label: title })
   refresh()
   return { id: row.id, joinUrl: joinUrl(row), warning }
 }
@@ -657,6 +815,7 @@ export async function sendMeetingToSlack(id: string): Promise<Result> {
     console.error(`Slack post failed: meeting ${m.id} sent`)
     return { error: "Slack didn't accept the message. Try again." }
   }
+  await audit(me, "meeting.slack", { targetId: m.id, label: m.title })
   return {}
 }
 
@@ -692,11 +851,28 @@ export async function cancelMeeting(id: string): Promise<Result & { warning?: st
     .returning({ id: meeting.id })
   if (!done.length) return { error: "Meeting not found." }
 
+  // Attendees are emails (guests may have no account): tell the ones on the team.
+  const invited = await db
+    .select({ id: user.id })
+    .from(member)
+    .innerJoin(user, eq(user.id, member.userId))
+    .where(and(eq(member.organizationId, me.orgId), inArray(sql`lower(${user.email})`, m.attendeeEmails)))
+  await notify({
+    orgId: me.orgId,
+    actor: me.user,
+    kind: "meeting_cancelled",
+    to: [m.createdById, ...invited.map((u) => u.id)],
+    subject: m.title,
+    taskId: m.taskId,
+    data: { subject: m.title, preview: formatSlot(m, tz()) },
+  })
+
   try {
     await postSlack(me.orgId, slackCancelled(m, me.user.name, tz()))
   } catch {
     console.error("Slack post failed: meeting cancelled")
   }
+  await audit(me, "meeting.cancel", { targetId: m.id, label: m.title })
   refresh()
   return { warning }
 }
@@ -747,6 +923,45 @@ export async function sendClientUpdate(input: z.input<typeof clientUpdateInput>)
   if (!stamped) return { error: "Those items were already reported. Refresh the page." }
 
   await log(me.orgId, me.user.id, "client_update_sent", { projectId, data: { project: p.name, items: itemCount } })
+  await audit(me, "client_update.send", { projectId, label: p.name, data: { items: itemCount } })
   refresh()
+  return {}
+}
+
+// ---------- Notifications ----------
+
+// Opening the inbox: everything in it counts as seen. No refresh: the inbox already shows it.
+export async function markNotificationsRead(): Promise<Result> {
+  const me = await requireMember()
+  await db
+    .update(notification)
+    .set({ readAt: new Date() })
+    .where(and(eq(notification.recipientId, me.user.id), isNull(notification.readAt)))
+  return {}
+}
+
+const pushSub = z.object({
+  endpoint: z.url().max(2000).refine(isPushEndpoint),
+  keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(200) }),
+})
+
+// This browser agreed to push. The endpoint is unique per browser, so signing in as someone else takes it over.
+export async function savePushSubscription(input: unknown): Promise<Result> {
+  const me = await requireMember()
+  const parsed = pushSub.safeParse(input)
+  if (!parsed.success) return { error: "This browser can't receive notifications." }
+  const { endpoint, keys } = parsed.data
+  await db
+    .insert(pushSubscription)
+    .values({ endpoint, userId: me.user.id, ...keys })
+    .onConflictDoUpdate({ target: pushSubscription.endpoint, set: { userId: me.user.id, ...keys } })
+  return {}
+}
+
+export async function removePushSubscription(endpoint: string): Promise<Result> {
+  const me = await requireMember()
+  await db
+    .delete(pushSubscription)
+    .where(and(eq(pushSubscription.endpoint, endpoint), eq(pushSubscription.userId, me.user.id)))
   return {}
 }

@@ -7,9 +7,26 @@
    (those stay in the DOM under `display: none`). */
 @custom-variant focus-page (&:has([data-focus]:not([style*="display: none"], [style*="display: none"] *)));
 
+/* The dotted field behind a data table's empty state (coss's look), faded toward its edges. */
+@utility bg-dots {
+  position: relative;
+  isolation: isolate;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: radial-gradient(color-mix(in oklab, var(--foreground) 16%, transparent) 1px, transparent 1px);
+    background-size: 16px 16px;
+    background-position: center;
+    mask-image: radial-gradient(ellipse at center, black 40%, transparent 85%);
+  }
+}
+
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: var(--font-sans);
+    --font-heading: var(--font-poppins), var(--font-sans);
+    --font-sans: var(--font-google-sans), ui-sans-serif, system-ui, sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -27,6 +44,13 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -49,83 +73,104 @@
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
     /* WeTrack surfaces (see DESIGN.md) */
-    --radius-row: 1.25rem;
-    --radius-panel: 1.5rem;
-    --radius-card: 1.75rem;
-    --radius-tile: 2rem;
-    --radius-sheet: 2.5rem;
+    /* Line-art scale: one 14px radius for every surface; list rows stay 8. */
+    --radius-row: 0.5rem;
+    --radius-panel: 0.875rem;
+    --radius-card: 0.875rem;
+    --radius-tile: 0.875rem;
+    --radius-sheet: 0.875rem;
+    /* coss surfaces: a hairline ring instead of a soft drop, so white cards read on a white canvas. */
+    --shadow-sm: 0 0 0 1px var(--border), 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --shadow-md: 0 0 0 1px var(--border), 0 4px 12px -2px rgb(0 0 0 / 0.08);
+    --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
     --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root {
-    --background: oklch(0.955 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.955 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 1rem;
-    --mist: oklch(0.86 0.035 210 / 55%);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    /* coss.com (coss ui) tokens: white canvas, neutral-800 ink, alpha hairlines. Source: coss.com's compiled CSS. */
+    --background: #ffffff;
+    --foreground: #262626;
+    --card: #ffffff;
+    --card-foreground: #262626;
+    --popover: #ffffff;
+    --popover-foreground: #262626;
+    --primary: #262626;
+    --primary-foreground: #fafafa;
+    --secondary: #0000000a;
+    --secondary-foreground: #262626;
+    --muted: #0000000a;
+    --muted-foreground: #686868;
+    --accent: #0000000a;
+    --accent-foreground: #262626;
+    --destructive: oklch(0.637 0.237 25.331);
+    --destructive-foreground: oklch(0.505 0.213 27.518);
+    --info: oklch(0.623 0.214 259.815);
+    --info-foreground: oklch(0.488 0.243 264.376);
+    --success: oklch(0.696 0.17 162.48);
+    --success-foreground: oklch(0.508 0.118 165.612);
+    --warning: oklch(0.769 0.188 70.08);
+    --warning-foreground: oklch(0.555 0.163 48.998);
+    --border: #00000014;
+    --input: #0000001a;
+    --ring: #a1a1a1;
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
+    --radius: 0.875rem;
+    --sidebar: #fafafa;
+    --sidebar-foreground: #262626;
+    --sidebar-primary: #262626;
+    --sidebar-primary-foreground: #fafafa;
+    --sidebar-accent: #0000000a;
+    --sidebar-accent-foreground: #262626;
+    --sidebar-border: #0000000f;
+    --sidebar-ring: #a1a1a1;
 }
 
 .dark {
-    --background: oklch(0.13 0 0);
-    --foreground: oklch(0.985 0 0);
-    --mist: oklch(0.35 0.04 210 / 35%);
-    --card: oklch(0.19 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: #0e0e0e;
+    --foreground: #f5f5f5;
+    --card: #151515;
+    --card-foreground: #f5f5f5;
+    --popover: #151515;
+    --popover-foreground: #f5f5f5;
+    --primary: #f5f5f5;
+    --primary-foreground: #262626;
+    --secondary: #ffffff07;
+    --secondary-foreground: #f5f5f5;
+    --muted: #ffffff08;
+    --muted-foreground: #818181;
+    --accent: #ffffff08;
+    --accent-foreground: #f5f5f5;
+    --destructive: #fb414a;
+    --destructive-foreground: oklch(0.704 0.191 22.216);
+    --info-foreground: oklch(0.707 0.165 254.624);
+    --success-foreground: oklch(0.765 0.177 163.223);
+    --warning-foreground: oklch(0.828 0.189 84.429);
+    --border: #ffffff14;
+    --input: #ffffff1c;
+    --ring: #8a8a8a;
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
+    --sidebar: #090909;
+    --sidebar-foreground: #f5f5f5;
+    --sidebar-primary: #f5f5f5;
+    --sidebar-primary-foreground: #262626;
+    --sidebar-accent: #ffffff08;
+    --sidebar-accent-foreground: #f5f5f5;
+    --sidebar-border: #ffffff10;
+    --sidebar-ring: #a3a3a3;
+}
+
+/* Line-art field: a faint dot grid under the panel in dark, as on a technical drawing. */
+.dark [data-slot="sidebar-inset"] {
+  background-image: radial-gradient(color-mix(in oklab, var(--foreground) 6%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 @layer base {
@@ -133,10 +178,10 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply min-h-svh bg-background text-foreground;
-    /* the soft tinted haze at the top of the reference screens */
-    background-image: radial-gradient(120% 60% at 0% 0%, var(--mist), transparent 60%);
-    background-attachment: fixed;
+    @apply min-h-svh bg-sidebar text-foreground;
+    }
+  :is(h1, h2) {
+    @apply font-heading;
     }
   .tabular {
     font-variant-numeric: tabular-nums;
@@ -257,8 +302,4 @@
 [data-font="mono"] :is(.rich, .rich-source) {
   font-family: var(--font-mono);
 }
-/* Focus pages (task, New task, Give feedback: `data-focus`): the page is the whole UI, so the app header and
-   sidebar step aside and the breadcrumb takes their place. */
-body:has([data-focus]:not([style*="display: none"], [style*="display: none"] *)) :is([data-app-header], [data-app-sidebar]) {
-  display: none;
-}
+

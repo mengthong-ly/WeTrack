@@ -30,6 +30,39 @@ export function PageSkeleton({ tiles = true }: { tiles?: boolean }) {
   )
 }
 
+/** A data table page (Tasks, Feedback, Meetings, Projects): the icon tile and title, the toolbar, and the framed
+ *  table with a header band, rows and the pagination foot. */
+export function TableSkeleton() {
+  return (
+    <div className={cn("flex flex-col gap-6", appear)} role="status" aria-label="Loading">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <Skeleton className={cn("size-10 rounded-lg bg-card/70", bone)} />
+          <Skeleton className={cn("h-9 w-44 max-w-full rounded-full bg-card/70 sm:h-10", bone)} />
+        </div>
+        <Skeleton className={cn("h-4 w-72 max-w-full rounded-full bg-card/70", bone)} />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Skeleton className={cn("h-9 w-64 max-w-full rounded-lg bg-card/70 sm:h-8", bone)} />
+        <Skeleton className={cn("h-9 w-72 max-w-full rounded-lg bg-card/70 sm:h-8", bone)} />
+      </div>
+      <div className="flex flex-col rounded-sheet border bg-muted/60">
+        <Skeleton className={cn("mx-5 my-4 h-4 w-28 rounded-full bg-card/70", bone)} />
+        <div className="flex flex-col rounded-xl border bg-card">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex h-12 items-center gap-4 border-b px-5 last:border-b-0">
+              <Skeleton className={cn("h-3.5 flex-1 rounded-full bg-muted", bone)} />
+              <Skeleton className={cn("h-3.5 w-24 rounded-full bg-muted max-sm:hidden", bone)} />
+              <Skeleton className={cn("h-3.5 w-20 rounded-full bg-muted", bone)} />
+            </div>
+          ))}
+        </div>
+        <Skeleton className={cn("mx-5 my-4 h-4 w-36 rounded-full bg-card/70", bone)} />
+      </div>
+    </div>
+  )
+}
+
 /** A focus page (task, New task, Give feedback): the breadcrumb, the document and the side panel. `data-focus` hides the
  *  app header and rail as the page itself does, so moving between tasks never brings them back for a moment.
  *  `contents` adds the task family outline's column (wide screens), there when you move between sub-tasks. */
@@ -86,5 +119,5 @@ export function DetailSkeleton() {
 
 /** The account button, before the signed-in data arrives. */
 export function HeaderToolsSkeleton() {
-  return <span aria-hidden className="size-11 rounded-full bg-card/85 shadow-lg ring-1 shadow-black/5 ring-foreground/5" />
+  return <span aria-hidden className="size-8 rounded-lg bg-muted" />
 }

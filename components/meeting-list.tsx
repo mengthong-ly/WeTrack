@@ -9,7 +9,6 @@ import { toast } from "sonner"
 import { cancelMeeting, sendMeetingToSlack } from "@/app/actions"
 import { UserAvatar } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
-import { openNewMeeting } from "@/components/new-meeting-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -18,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { MeetingItem } from "@/lib/queries"
+import { taskHref } from "@/lib/routes"
 
 /** Upcoming meetings: time, title, task, people and Join. `readOnly` drops the menu and task links (CEO page). */
 export function MeetingList({
@@ -78,7 +78,7 @@ export function MeetingList({
                   (readOnly ? (
                     <span className="truncate">{m.task.title}</span>
                   ) : (
-                    <Link href={`/tasks/${m.task.id}`} className="truncate hover:text-foreground hover:underline">
+                    <Link href={taskHref(m.task.projectId, m.task.id)} className="truncate hover:text-foreground hover:underline">
                       {m.task.title}
                     </Link>
                   ))}
@@ -121,17 +121,5 @@ export function MeetingList({
       </ul>
       {items.length === 0 && empty}
     </>
-  )
-}
-
-export function NewMeetingButton() {
-  return (
-    <Button
-      variant="ghost"
-      onClick={() => openNewMeeting()}
-      className="-mx-3 -my-2 h-10 rounded-full px-3 font-normal text-muted-foreground transition-[background-color,scale] active:scale-95"
-    >
-      New meeting
-    </Button>
   )
 }

@@ -1,10 +1,11 @@
 "use client"
 
-import { CalendarCheckIcon, CalendarPlusIcon, LogOutIcon, MoonIcon, SunIcon } from "lucide-react"
+import { CalendarCheckIcon, CalendarPlusIcon, ChevronsUpDownIcon, LogOutIcon, MoonIcon, SunIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import { UserAvatar } from "@/components/bits"
 import { connectGoogle } from "@/components/connect-google"
+import { unsubscribe } from "@/components/inbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { SidebarMenuButton } from "@/components/ui/sidebar"
 import { authClient } from "@/lib/auth-client"
 
 export function UserMenu({
@@ -21,24 +23,25 @@ export function UserMenu({
   orgName,
   googleEnabled,
   calendarConnected,
-  side,
 }: {
   user: { name: string; email: string; image?: string | null }
   orgName: string
   googleEnabled: boolean
   calendarConnected: boolean
-  side?: "top" | "right"
 }) {
   const { resolvedTheme, setTheme } = useTheme()
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="Account"
-        className="grid size-11 place-items-center rounded-full bg-card/85 shadow-lg ring-1 shadow-black/5 ring-foreground/5 backdrop-blur-xl transition-[scale] active:scale-95"
-      >
+      {/* The sidebar footer row: avatar, name and email; the avatar alone when the sidebar is collapsed. */}
+      <DropdownMenuTrigger aria-label="Account" render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
         <UserAvatar user={user} className="size-8 ring-0" />
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate font-medium">{user.name}</span>
+          <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+        </span>
+        <ChevronsUpDownIcon className="ml-auto text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side={side} align="end" sideOffset={10} className="w-56">
+      <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-(--anchor-width) min-w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="flex flex-col">
             <span className="text-sm font-medium text-foreground">
@@ -71,6 +74,8 @@ export function UserMenu({
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={async () => {
+            // This browser stops getting the last person's notifications.
+            await unsubscribe().catch(() => {})
             await authClient.signOut()
             // A full load, not router.push: Next keeps recent pages alive (hidden) in memory, and
             // the next person to sign in on this tab mustn't find the last one's pages there.

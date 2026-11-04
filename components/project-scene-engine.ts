@@ -7,6 +7,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 
 import type { TaskStatus } from "@/lib/db/enums"
 import { formatDate, HEALTH, initials, PRIORITY, PROJECT_HEALTH, STATUS } from "@/lib/labels"
+import { projectHref, taskHref } from "@/lib/routes"
 import { MAX_PROJECTS, type SceneData } from "@/lib/scene"
 
 export type Mode = "hub" | "flow" | "team"
@@ -107,18 +108,21 @@ const REST = 0.15 // how much a token's plate glows when nothing is on it
 const LINE = 0.3 // a hairline's opacity; a hovered project's line darkens to 0.9
 const WHITE = new THREE.Color(0xffffff)
 const UP = new THREE.Vector3(0, 1, 0)
-const NEAR_BLACK = new THREE.Color(0x171717)
 
 /** What a token shows on top: an image (as a duotone), initials, or a status glyph. */
-type Glyph = TaskStatus | "unassigned"
+type Glyph = TaskStatus | "unassigned" | "workspace"
 type FaceSpec = {
   fill: Tone
   ink: Tone
   text?: string
   image?: string | null
   glyph?: Glyph
-  /** In a badge under the mark (beside the glyph on a tray). */
+  /** Beside the glyph on a tray. */
   name?: string
+  /** Engraved on the block's two visible sides: the name (left) and a quiet detail (right). */
+  side?: [string, string]
+  /** A project's own colour, as a dot before the name. */
+  dot?: Tone
   /** Trays carry blocks in the middle, so their glyph sits at the front edge. */
   front?: boolean
 }
@@ -152,9 +156,11 @@ function readPalette(root: HTMLElement) {
     ink,
     paper,
     muted,
+    raised: paper.clone().lerp(ink, 0.04), // a block's body: a step lighter than the floor
     neutral: paper.clone().lerp(muted, 0.6), // not-started and unassigned blocks
     ghost: paper.clone().lerp(muted, 0.25), // a filtered-out block fades toward the paper
     font: getComputedStyle(root).fontFamily,
+    mono: (probe.className = "font-mono", getComputedStyle(probe).fontFamily),
     overdue: text(HEALTH.overdue.className),
     dueSoon: text(HEALTH.due_soon.className),
     urgent: text(PRIORITY.urgent.className),
@@ -167,9 +173,6 @@ function readPalette(root: HTMLElement) {
   probe.remove()
   return palette
 }
-
-// White engraving on dark colours, near-black on light ones (yellow, cyan).
-const inkOn = (c: THREE.Color) => (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.4 ? NEAR_BLACK : WHITE)
 
 const roundedSquare = (half: number, r: number) => {
   const s = new THREE.Shape()
@@ -189,7 +192,7 @@ const roundedSquare = (half: number, r: number) => {
 // review), a cross (blocked), a filled check (completed).
 function drawGlyph(x: CanvasRenderingContext2D, g: Glyph, cx: number, cy: number, r: number, ink: string, hole: string) {
   x.strokeStyle = x.fillStyle = ink
-  x.lineWidth = r * 0.2
+  x.lineWidth = r * 0.12
   x.lineCap = x.lineJoin = "round"
   const ring = () => {
     x.beginPath()
@@ -203,7 +206,22 @@ function drawGlyph(x: CanvasRenderingContext2D, g: Glyph, cx: number, cy: number
     x.closePath()
     x.fill()
   }
-  if (g === "not_started" || g === "unassigned") {
+  if (g === "workspace") {
+    // A wireframe globe: the outline, a meridian, a tilted meridian and two parallels.
+    ring()
+    x.beginPath()
+    x.ellipse(cx, cy, r * 0.46, r, 0, 0, TAU)
+    x.moveTo(cx, cy - r)
+    x.lineTo(cx, cy + r)
+    for (const k of [-0.5, 0.5]) {
+      const w = Math.sqrt(1 - k * k) * r
+      x.moveTo(cx - w, cy + k * r)
+      x.lineTo(cx + w, cy + k * r)
+    }
+    x.moveTo(cx - r, cy)
+    x.lineTo(cx + r, cy)
+    x.stroke()
+  } else if (g === "not_started" || g === "unassigned") {
     x.setLineDash([r * 0.42, r * 0.36])
     ring()
     x.setLineDash([])
@@ -251,10 +269,9 @@ function paintFace(c: HTMLCanvasElement, f: FaceSpec, pal: Palette, img: HTMLIma
   const fill = f.fill(pal), ink = f.ink(pal)
   x.fillStyle = fill.getStyle()
   x.fillRect(0, 0, S, S)
-  const named = !!f.name && !f.front
   let cx = S / 2
-  const cy = f.front ? S * 0.845 : named ? S * 0.37 : S / 2
-  const r = f.front ? S * 0.075 : named ? S * 0.2 : S * 0.27
+  const cy = f.front ? S * 0.845 : S / 2
+  const r = f.front ? S * 0.075 : S * 0.24
   if (f.front && f.name) {
     // A tray: glyph and name side by side, centred together on the front edge.
     x.font = `500 ${Math.round(S * 0.07)}px ${pal.font}`
@@ -299,21 +316,6 @@ function paintFace(c: HTMLCanvasElement, f: FaceSpec, pal: Palette, img: HTMLIma
       // A picture from a host without CORS can't be read; the initials stay.
     }
   }
-  if (named) {
-    // The name in a pill under the mark, the ink at low opacity behind it.
-    x.font = `500 ${Math.round(S * 0.105)}px ${pal.font}`
-    const label = fit(x, f.name!, S * 0.74)
-    const h = S * 0.19, w = x.measureText(label).width + S * 0.12, y = S * 0.77
-    x.fillStyle = ink.getStyle()
-    x.globalAlpha = 0.14
-    x.beginPath()
-    x.roundRect(S / 2 - w / 2, y - h / 2, w, h, h / 2)
-    x.fill()
-    x.globalAlpha = 1
-    x.textAlign = "center"
-    x.textBaseline = "middle"
-    x.fillText(label, S / 2, y + S * 0.004)
-  }
   if (!drawn && f.glyph) drawGlyph(x, f.glyph, cx, cy, r, ink.getStyle(), fill.getStyle())
   else if (!drawn && f.text) {
     x.fillStyle = ink.getStyle()
@@ -322,8 +324,30 @@ function paintFace(c: HTMLCanvasElement, f: FaceSpec, pal: Palette, img: HTMLIma
     x.textBaseline = "middle"
     x.fillText(f.text, cx, cy + r * 0.05)
   }
-  x.fillStyle = "rgba(0,0,0,0.05)"
-  for (let y = 0; y < S; y += 4) x.fillRect(0, y, S, 1)
+}
+
+// One engraved side of a block: a quiet mono label, with an optional colour dot before it.
+function paintSide(c: HTMLCanvasElement, text: string, fill: THREE.Color, ink: THREE.Color, pal: Palette, dot?: THREE.Color, quiet?: boolean) {
+  const W = c.width, H = c.height
+  const x = c.getContext("2d")!
+  x.fillStyle = fill.getStyle()
+  x.fillRect(0, 0, W, H)
+  const px = Math.round(Math.min(H * 0.34, W * 0.075))
+  x.font = `400 ${px}px ${pal.mono}`
+  x.textBaseline = "middle"
+  x.textAlign = "left"
+  const pad = W * 0.07
+  let left = pad
+  if (dot) {
+    x.fillStyle = dot.getStyle()
+    x.beginPath()
+    x.arc(pad + px * 0.3, H / 2, px * 0.3, 0, TAU)
+    x.fill()
+    left += px * 0.9
+  }
+  x.fillStyle = ink.getStyle()
+  x.globalAlpha = quiet ? 0.5 : 0.92
+  x.fillText(fit(x, text, W - left - pad), left, H / 2 + px * 0.04)
 }
 
 export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, view: View | null): SceneApi {
@@ -430,24 +454,6 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
   })()
   scene.add(grid)
 
-  // Fine vertical hairlines down every token's sides. Side-wall UVs are in world units, so the
-  // spacing is the same on every size of token.
-  const stripes = (() => {
-    const c = document.createElement("canvas")
-    c.width = 64
-    c.height = 4
-    const x = c.getContext("2d")!
-    x.fillStyle = "#fff"
-    x.fillRect(0, 0, 64, 4)
-    x.fillStyle = "#cfcfcf"
-    for (let i = 0; i < 64; i += 4) x.fillRect(i, 0, 1, 4)
-    const t = new THREE.CanvasTexture(c)
-    t.wrapS = t.wrapT = THREE.RepeatWrapping
-    t.repeat.set(1.5, 1)
-    t.colorSpace = THREE.SRGBColorSpace
-    t.anisotropy = anisotropy
-    return t
-  })()
   const faces: THREE.Texture[] = []
 
   // --- building blocks -------------------------------------------------------
@@ -474,8 +480,8 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     return m
   }
   // A 1px line in the ink colour; `userData.base` is its opacity.
-  const stroke = (L: Layer) => {
-    const m = own(L, new THREE.LineBasicMaterial({ toneMapped: false }), LINE)
+  const stroke = (L: Layer, base = LINE) => {
+    const m = own(L, new THREE.LineBasicMaterial({ toneMapped: false }), base)
     const paint = (p: Palette) => m.color.copy(p.ink)
     paint(pal)
     tints.push(paint)
@@ -485,7 +491,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
   const kit = (L: Layer) => {
     const line = lit(L, (q) => q.ink, 0)
     line.userData.base = LINE
-    return { ink: lit(L, (q) => q.ink, 0, 0, 0.45), paper: lit(L, (q) => q.paper, 0, 0, 0.6), neutral: lit(L, (q) => q.neutral, 0), line, stroke: stroke(L) }
+    return { ink: lit(L, (q) => q.ink, 0, 0, 0.45), paper: lit(L, (q) => q.paper, 0, 0, 0.6), neutral: lit(L, (q) => q.neutral, 0), line, stroke: stroke(L), edge: stroke(L, 0.7) }
   }
   type Kit = ReturnType<typeof kit>
   const geos = new Map<string, THREE.BufferGeometry>()
@@ -494,7 +500,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     if (!g) geos.set(key, (g = make()))
     return g
   }
-  const mesh = (parent: THREE.Object3D, g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+  const mesh = (parent: THREE.Object3D, g: THREE.BufferGeometry, m: THREE.Material | THREE.Material[], x: number, y: number, z: number) => {
     const o = new THREE.Mesh(g, m)
     o.position.set(x, y, z)
     o.castShadow = o.receiveShadow = true
@@ -528,33 +534,60 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       g.translate(0, b, 0)
       return g
     })
-  // The face laid on a slab's flat top, with its UVs spread 0–1 across it.
-  const decal = (size: number) =>
-    geo(`d${size}`, () => {
-      const s = size / 2 - BEVEL
-      const g = new THREE.ShapeGeometry(roundedSquare(s, size * 0.15), 10)
-      const uv = g.attributes.uv
-      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) + s) / (2 * s), (uv.getY(i) + s) / (2 * s))
-      g.rotateX(-Math.PI / 2)
-      return g
-    })
+  // The face laid on a block's flat top; canvas top is the block's back.
+  const face = (size: number) => geo(`f${size}`, () => new THREE.PlaneGeometry(size, size).rotateX(-Math.PI / 2))
   /**
-   * A token: a rounded square seen in perspective, its mark engraved on top and hairlines down
-   * its sides. With `plate`, it stands on a thin plate in a meaning colour (health, status,
-   * overdue) that glows on hover. Returns the height of its top, the glow and its materials.
+   * A token: a flat block seen in perspective, drawn as line art. A 1px ink outline on every edge,
+   * its mark on top, and (with `side`) its name and a quiet detail engraved on the two sides you see.
+   * With `plate`, it sits in a thin outlined socket in a meaning colour (health, status, overdue)
+   * that glows on hover. Returns the height of its top, the glow and its materials.
    */
   const token = (L: Layer, parent: THREE.Object3D, size: number, h: number, body: Tone, f: FaceSpec, plate: Tone | null, y = 0) => {
     const fade: THREE.Material[] = []
     let glow: Std | null = null
+    const outline = (w: number, d: number, base: number, at: number) => {
+      const m = stroke(L, base)
+      const e = new THREE.LineSegments(geo(`e${w},${d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(w, d, w))), m)
+      e.position.set(0, at + d / 2, 0)
+      e.scale.setScalar(1.002)
+      parent.add(e)
+      fade.push(m)
+    }
+    const flat = (w: number, d: number) => geo(`x${w},${d}`, () => new THREE.BoxGeometry(w, d, w).translate(0, d / 2, 0))
     if (plate) {
-      glow = lit(L, plate, REST)
+      // Quieter than the meaning colour itself: it sits low in the dark and brightens on hover.
+      glow = lit(L, (q) => plate(q).clone().lerp(q.paper, 0.75), REST)
       fade.push(glow)
-      mesh(parent, slab(size + 0.1, PLATE), glow, 0, y, 0)
+      mesh(parent, flat(size + 0.14, PLATE), glow, 0, y, 0)
+      outline(size + 0.14, PLATE, 0.35, y)
       y += PLATE
     }
-    const side = lit(L, body, 0, 0, 0.55)
-    side.map = stripes
-    mesh(parent, slab(size, h), side, 0, y, 0)
+    const wall = lit(L, body, 0, 0, 0.6)
+    const sides: THREE.Material[] = [wall, wall, wall, wall, wall, wall]
+    fade.push(wall)
+    if (f.side) {
+      const H = Math.max(64, Math.round((512 * h) / size))
+      ;([[0, f.side[1], true], [4, f.side[0], false]] as const).forEach(([face, text, quiet]) => {
+        const c = document.createElement("canvas")
+        c.width = 512
+        c.height = H
+        const t = new THREE.CanvasTexture(c)
+        t.colorSpace = THREE.SRGBColorSpace
+        t.anisotropy = anisotropy
+        faces.push(t)
+        const m = own(L, new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, metalness: 0 }))
+        const paint = (p: Palette) => {
+          paintSide(c, text, body(p), p.ink, p, quiet ? undefined : f.dot?.(p), quiet)
+          t.needsUpdate = true
+        }
+        paint(pal)
+        tints.push(paint)
+        sides[face] = m
+        fade.push(m)
+      })
+    }
+    mesh(parent, flat(size, h), sides, 0, y, 0)
+    outline(size, h, 0.85, y)
     const canvas = document.createElement("canvas")
     canvas.width = canvas.height = FACE
     const tex = new THREE.CanvasTexture(canvas)
@@ -579,8 +612,8 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       }
       load.src = f.image
     }
-    mesh(parent, decal(size), top, 0, y + h + 0.002, 0).castShadow = false
-    fade.push(side, top)
+    mesh(parent, face(size), top, 0, y + h + 0.002, 0).castShadow = false
+    fade.push(top)
     return { top: y + h, glow, fade }
   }
   const track = (L: Layer, it: Omit<Item, "home" | "lift" | "dim">) => {
@@ -595,7 +628,11 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
   const block = (L: Layer, M: Kit, c: THREE.Group, t: SceneData["tasks"][number], y: number, drag: Item["drag"]) => {
     const tone: Tone = (q) => (t.status === "not_started" || drag === "assign" ? q.neutral : q.status[t.status])
     const m = lit(L, tone, 0, 0, 0.45)
-    box(c, BLOCK, BLOCK, BLOCK, 0, BLOCK / 2, 0, m, 0.06)
+    box(c, BLOCK, BLOCK, BLOCK, 0, BLOCK / 2, 0, m, 0)
+    const rim = new THREE.LineSegments(geo("eblock", () => new THREE.EdgesGeometry(new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK))), M.edge)
+    rim.position.y = BLOCK / 2
+    rim.scale.setScalar(1.003)
+    c.add(rim)
     const late = t.health === "overdue" ? (q: Palette) => q.overdue : t.health === "due_soon" ? (q: Palette) => q.dueSoon : null
     const marks: Std[] = []
     if (late) {
@@ -616,7 +653,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       ref: { kind: "task", id: t.id },
       obj: c, y, rise: 0.18, glow: m, rest: 0, top: BLOCK, drag, status: t.status, tone, marks,
       tip: [t.priority === "urgent" ? `${t.title} (urgent)` : t.title, meta.filter(Boolean).join(" · ")],
-      href: `/tasks/${t.id}`,
+      href: t.projectId ? taskHref(t.projectId, t.id) : null,
     })
   }
   // Up to 27 blocks in a 3×3×3 stack on a tray, behind the glyph at its front edge.
@@ -636,12 +673,12 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
   const core = new THREE.Group()
   core.position.y = FLOOR
   hub.group.add(core)
+  const openCount = Object.values(data.counts).reduce((a, b) => a + b, 0) - data.counts.completed
   const coreTok = token(
-    hub, core, 1.9, 0.5, (q) => q.ink,
-    { fill: (q) => q.ink, ink: (q) => q.paper, text: initials(data.workspace.name), image: data.workspace.logo, name: data.workspace.name },
+    hub, core, 1.9, 0.5, (q) => q.raised,
+    { fill: (q) => q.raised, ink: (q) => q.ink, glyph: "workspace", image: data.workspace.logo, side: [data.workspace.name, `${data.projects.length} project${data.projects.length === 1 ? "" : "s"}`] },
     (q) => q.status.in_progress
   )
-  const openCount = Object.values(data.counts).reduce((a, b) => a + b, 0) - data.counts.completed
   track(hub, {
     ref: { kind: "workspace", id: "workspace" },
     obj: core, y: FLOOR, rise: 0.15, glow: coreTok.glow!, rest: REST, top: coreTok.top, href: null, fade: coreTok.fade,
@@ -654,10 +691,10 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     hub.group.add(t)
     const color = new THREE.Color(p.color)
     // Taller with more open work.
-    const h = 0.2 + Math.min(p.open, 12) * 0.05
+    const h = 0.45 + Math.min(p.open, 12) * 0.04
     const tok = token(
-      hub, t, 1.5, h, () => color,
-      { fill: () => color, ink: () => inkOn(color), text: initials(p.name), image: p.logo, name: p.name },
+      hub, t, 1.5, h, (q) => q.raised,
+      { fill: (q) => q.raised, ink: (q) => q.ink, text: initials(p.name), image: p.logo, side: [p.name, `${p.open} open`], dot: () => color },
       (q) => q.health[p.health]
     )
     // A hairline from the core to the token; it darkens while the token is up. The outer ring's
@@ -673,7 +710,7 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       ref: { kind: "project", id: p.id },
       obj: t, y: FLOOR, rise: 0.3, glow: tok.glow!, rest: REST, top: tok.top, link, fade: tok.fade,
       tip: [p.name, `${PROJECT_HEALTH[p.health].label} · ${p.progress}% · ${p.open} open`],
-      href: `/tasks?project=${p.id}`,
+      href: projectHref(p.id),
     })
   })
 
@@ -687,10 +724,10 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     flow.group.add(st)
     const tone: Tone = (q) => q.status[lane.status]
     const name = STATUS[lane.status].label.split(" /")[0]
-    const tray = token(flow, st, 2.3, 0.14, (q) => q.paper, { fill: (q) => q.paper, ink: tone, glyph: lane.status, name, front: true }, tone)
+    const tray = token(flow, st, 2.3, 0.14, (q) => q.raised, { fill: (q) => q.raised, ink: tone, glyph: lane.status, name, front: true }, tone)
     track(flow, {
       ref: { kind: "status", id: lane.status },
-      obj: st, y: FLOOR, rise: 0, glow: tray.glow!, rest: REST, top: tray.top, href: `/tasks?status=${lane.status}`,
+      obj: st, y: FLOOR, rise: 0, glow: tray.glow!, rest: REST, top: tray.top, href: null,
       tip: [name, `${data.counts[lane.status]} tasks`],
     })
     stack(flow, FM, tasksBy(lane.status), lane.x, lane.z, tray.top, "status")
@@ -760,8 +797,8 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
     const active = m.active - m.blocked
     for (let s = 0; s < slabs; s++) mesh(tower, slab(1.1, 0.13), s < active ? working : s < m.active ? stuck : TM.neutral, 0, PLATE + s * 0.16, 0)
     const tok = token(
-      team, tower, 1.3, 0.22, (q) => q.ink,
-      { fill: (q) => q.paper, ink: (q) => q.ink, text: initials(m.name), image: m.image, name: m.name.split(" ")[0] },
+      team, tower, 1.3, 0.3, (q) => q.raised,
+      { fill: (q) => q.raised, ink: (q) => q.ink, text: initials(m.name), image: m.image, side: [m.name.split(" ")[0], `${m.open} open`] },
       null, PLATE + slabs * 0.16
     )
     const meta = [`${m.open} open`, m.active && `${m.active} in progress`, m.overdue && `${m.overdue} overdue`]
@@ -769,14 +806,14 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
       ref: { kind: "member", id: m.id },
       obj: tower, y: FLOOR, rise: 0.2, glow: strip, rest: REST, top: tok.top, fade: [strip, ...tok.fade],
       tip: [m.name, meta.filter(Boolean).join(" · ")],
-      href: `/tasks?person=${m.id}`,
+      href: null,
     })
   })
   if (spare) {
     const st = new THREE.Group()
     st.position.set(spareX, FLOOR, 0)
     team.group.add(st)
-    const tray = token(team, st, 2.3, 0.14, (q) => q.paper, { fill: (q) => q.paper, ink: (q) => q.muted, glyph: "unassigned", name: "Unassigned", front: true }, (q) => q.muted)
+    const tray = token(team, st, 2.3, 0.14, (q) => q.raised, { fill: (q) => q.raised, ink: (q) => q.muted, glyph: "unassigned", name: "Unassigned", front: true }, (q) => q.muted)
     stack(team, TM, data.unassigned, spareX, 0, tray.top, "assign")
   }
 
@@ -1249,7 +1286,6 @@ export function mountScene(root: HTMLElement, data: SceneData, hooks: Hooks, vie
         ;(Array.isArray(m.material) ? m.material : m.material ? [m.material] : []).forEach((x) => x.dispose())
       })
       for (const t of faces) t.dispose()
-      stripes.dispose()
       env.dispose()
       renderer.dispose()
       renderer.forceContextLoss()

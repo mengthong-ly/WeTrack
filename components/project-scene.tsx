@@ -266,8 +266,7 @@ export function ProjectScene({
 
           <div
             className={cn(
-              "absolute inset-x-3 flex flex-wrap items-center justify-center gap-2",
-              chrome === "page" ? "bottom-24 sm:bottom-28" : "bottom-3 sm:bottom-4"
+              "absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-center gap-2 sm:bottom-4"
             )}
           >
             {/* Phones: the views take their own row above the camera buttons. */}

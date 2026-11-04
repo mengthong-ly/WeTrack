@@ -3,7 +3,7 @@
 import type { Editor } from "@tiptap/react"
 import {
   CircleCheckIcon,
-  ChevronRightIcon,
+  MessageSquareMoreIcon,
   CircleDashedIcon,
   ClockIcon,
   ImageOffIcon,
@@ -17,10 +17,10 @@ import {
   Trash2Icon,
   UserIcon,
 } from "lucide-react"
-import { AnimatePresence, motion } from "motion/react"
+import { motion } from "motion/react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useOptimistic, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
@@ -31,7 +31,10 @@ import {
   setFeedbackResolved,
   updateFeedback,
 } from "@/app/actions"
-import { Crumbs, LoadMore, ProjectDot, UserAvatar } from "@/components/bits"
+import { Crumbs, ProjectDot, UserAvatar } from "@/components/bits"
+import { Button as CossButton } from "@/components/coss/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/coss/table"
+import { DataEmpty, DataFrame, DataPagination, FilterTabs, PageHead, setSearchParams, SortHead, TabCount, Toolbar, ToolbarEnd, useClampPage } from "@/components/data-table"
 import {
   EditorSheet,
   FocusLayout,
@@ -42,9 +45,8 @@ import {
   Tuned,
 } from "@/components/editor-tools"
 import { ImageGallery } from "@/components/image-gallery"
-import { Reveal, spring } from "@/components/motion-bits"
+import { spring } from "@/components/motion-bits"
 import { Pick } from "@/components/pick"
-import { PillTabs } from "@/components/pill-tabs"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -52,11 +54,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { FEEDBACK_PAGE, feedbackKey, type FeedbackWho, readFeedbackParams } from "@/lib/paging"
+import { feedbackKey, type FeedbackWho, readFeedbackParams } from "@/lib/paging"
 import { imageForm, shrink, uploadTo } from "@/lib/image"
 import { type ListPage, useServerList } from "@/lib/use-server-list"
 import { plainText } from "@/lib/markdown"
 import { attachmentSrc, cn } from "@/lib/utils"
+import { feedbackHref, taskHref } from "@/lib/routes"
 
 // Tiptap loads after the page; until then read-only notes show as written.
 const RichText = dynamic(() =>
@@ -66,6 +69,7 @@ const RichText = dynamic(() =>
 type Person = { id: string; name: string; image: string | null }
 export type FeedbackItem = {
   id: string
+  projectId: string | null
   body: string | null
   imageId: string | null
   resolved: boolean
@@ -83,22 +87,15 @@ export type FeedbackTask = {
 }
 
 type Who = "mine" | "given" | "all"
-const EMPTY: Record<Who, string> = {
-  mine: "Nothing to fix. Feedback on your tasks shows up here.",
-  given: "You haven't given feedback yet. Pick someone and paste a screenshot.",
-  all: "No open feedback. Give some with the button above.",
+const EMPTY: Record<Who, { title: string; description: string }> = {
+  mine: { title: "Nothing to fix", description: "Feedback on your work in this project shows up here." },
+  given: { title: "You haven't given feedback", description: "Pick a task, paste a screenshot and say what to change." },
+  all: { title: "No open feedback", description: "Notes and screenshots on this project's work show up here." },
 }
+const FRAME = "feedback-table"
 
-// Tab, Open / Fixed and how many are shown live in the URL (?who=, ?fixed=1, ?show=), changed through the
-// History API like the Tasks filters; useServerList fetches the feedback for the new URL.
-function setParam(key: string, value: string | null, { replace = false } = {}) {
-  const q = new URLSearchParams(window.location.search)
-  if (value) q.set(key, value)
-  else q.delete(key)
-  if (key !== "show") q.delete("show")
-  window.history[replace ? "replaceState" : "pushState"](null, "", `?${q}`)
-}
-
+// One project's feedback as a data table: For me / From me / Everyone and Open / Fixed live in the URL (?who=,
+// ?fixed=1, ?page=), changed through the History API like the Tasks filters; useServerList fetches the rows.
 export function FeedbackBoard({
   initial,
   fallback,
@@ -108,43 +105,30 @@ export function FeedbackBoard({
   fallback: FeedbackWho // the tab with no ?who=: "For me" when there's something to fix
   meId: string
 }) {
-  const params = readFeedbackParams(useSearchParams(), fallback)
-  const { who, fixed } = params
-  const { rows, total, open, pending, appending } = useServerList(initial, feedbackKey(params), "/api/feedback")
-  const [optimistic, setResolved] = useOptimistic(
-    rows,
-    (state, { id, resolved }: { id: string; resolved: boolean }) =>
-      state.map((i) => (i.id === id ? { ...i, resolved } : i))
+  const { projectId } = useParams<{ projectId: string }>()
+  const params = { ...readFeedbackParams(useSearchParams(), fallback), projectId }
+  const { who, fixed, page } = params
+  const { rows, total, open, pending } = useServerList(initial, feedbackKey(params), "/api/feedback")
+  useClampPage(page, total, rows.length, pending)
+  const [optimistic, setResolved] = useOptimistic(rows, (state, { id, resolved }: { id: string; resolved: boolean }) =>
+    state.map((i) => (i.id === id ? { ...i, resolved } : i))
   )
   const [, start] = useTransition()
 
-  // Pin the first tab into the URL, so the board stays on it when a fix changes what the default would be.
+  // Pin the first tab into the URL, so the table stays on it when a fix changes what the default would be.
   useEffect(() => {
-    if (!new URLSearchParams(window.location.search).has("who")) setParam("who", fallback, { replace: true })
+    if (!new URLSearchParams(window.location.search).has("who")) setSearchParams({ who: fallback, page: null }, { replace: true })
   }, [fallback])
-  const setWho = (w: Who) => setParam("who", w)
-  const setFixed = (f: boolean) => setParam("fixed", f ? "1" : null)
 
   // Feedback ticked fixed leaves the Open list at once; the server's next page agrees.
   const shown = optimistic.filter((i) => i.resolved === fixed)
-  // Grouped by task (feedback without one, by who they're for), newest feedback first; feedback inside a group reads in
-  // the order they were written.
-  const byGroup = new Map<string, FeedbackItem[]>()
-  for (const i of shown) {
-    const key = i.task?.id ?? `for:${i.recipient?.id}`
-    byGroup.set(key, [i, ...(byGroup.get(key) ?? [])])
-  }
-  const groups = [...byGroup.entries()]
 
   function resolve(item: FeedbackItem, resolved: boolean) {
     start(async () => {
       setResolved({ id: item.id, resolved })
       const res = await setFeedbackResolved(item.id, resolved)
       if (res.error) toast.error(res.error)
-      else if (resolved)
-        toast.success("Marked as fixed", {
-          action: { label: "Undo", onClick: () => resolve(item, false) },
-        })
+      else if (resolved) toast.success("Marked as fixed", { action: { label: "Undo", onClick: () => resolve(item, false) } })
     })
   }
 
@@ -157,273 +141,200 @@ export function FeedbackBoard({
     })
   }
 
-  const count = (n: number) =>
-    n > 0 && <span className="tabular text-xs opacity-60">{n}</span>
+  const give = (
+    <CossButton render={<Link href={`${feedbackHref(projectId)}/new`} />}>
+      <PlusIcon />
+      Give feedback
+    </CossButton>
+  )
+  const empty = fixed ? (
+    <DataEmpty icon={<CircleCheckIcon />} title="Nothing fixed yet" description="Feedback you tick as fixed moves here." />
+  ) : (
+    <DataEmpty icon={<MessageSquareMoreIcon />} title={EMPTY[who].title} description={EMPTY[who].description} action={who === "mine" ? undefined : give} />
+  )
 
   return (
     <>
-      <Reveal index={1} className="flex flex-wrap items-center gap-2">
-        <PillTabs
-          id="feedback-who"
-          className="max-w-full self-start"
+      <PageHead tone="destructive"
+        icon={<MessageSquareMoreIcon />}
+        title="Feedback"
+        description="Notes and screenshots on this project's work. Tick one once it's fixed."
+        actions={give}
+      />
+      <Toolbar>
+        <FilterTabs
+          label="Whose feedback"
+          value={who}
+          onChange={(w) => setSearchParams({ who: w })}
           items={[
-            {
-              key: "mine",
-              label: <>For me {count(open.mine)}</>,
-              active: who === "mine",
-              onSelect: () => setWho("mine"),
-            },
-            {
-              key: "given",
-              label: <>From me {count(open.given)}</>,
-              active: who === "given",
-              onSelect: () => setWho("given"),
-            },
-            {
-              key: "all",
-              label: <>Everyone {count(open.all)}</>,
-              active: who === "all",
-              onSelect: () => setWho("all"),
-            },
+            { value: "mine", label: <>For me <TabCount n={open.mine} /></> },
+            { value: "given", label: <>From me <TabCount n={open.given} /></> },
+            { value: "all", label: <>Everyone <TabCount n={open.all} /></> },
           ]}
         />
-        <PillTabs
-          id="feedback-state"
-          className="max-w-full self-start"
-          items={[
-            {
-              key: "open",
-              label: "Open",
-              active: !fixed,
-              onSelect: () => setFixed(false),
-            },
-            {
-              key: "fixed",
-              label: "Fixed",
-              active: fixed,
-              onSelect: () => setFixed(true),
-            },
-          ]}
-        />
-        <Button
-          nativeButton={false}
-          render={<Link href="/feedback/new" />}
-          className="h-11 gap-2 rounded-full px-5 transition-[background-color,scale] active:scale-95 sm:ml-auto"
-        >
-          <PlusIcon className="size-4" />
-          Give feedback
-        </Button>
-      </Reveal>
-
-      <Reveal
-        index={2}
-        className={cn(
-          "flex flex-col gap-6 rounded-sheet bg-card p-3 shadow-sm transition-opacity duration-200 sm:p-4",
-          pending && !appending && "opacity-60"
-        )}
+        <ToolbarEnd>
+          <FilterTabs
+            label="State"
+            value={fixed ? "fixed" : "open"}
+            onChange={(s) => setSearchParams({ fixed: s === "fixed" ? "1" : null })}
+            items={[
+              { value: "open", label: "Open" },
+              { value: "fixed", label: "Fixed" },
+            ]}
+          />
+        </ToolbarEnd>
+      </Toolbar>
+      <DataFrame
+        id={FRAME}
+        title={fixed ? "Fixed" : "Open"}
+        total={total}
+        pending={pending}
+        footer={
+          total > 0 && (
+            <DataPagination frameId={FRAME} page={page} total={total} onPage={(p) => setSearchParams({ page: p > 1 ? String(p) : null })} />
+          )
+        }
       >
-        <AnimatePresence mode="popLayout" initial={false}>
-          {groups.map(([key, points]) => {
-            const { task, recipient } = points[0]
-            return (
-              <motion.section
-                key={key}
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{
-                  opacity: 0,
-                  scale: 0.97,
-                  transition: { duration: 0.18 },
-                }}
-                transition={spring}
-                className="flex flex-col gap-2.5"
-              >
-                <header className="flex min-w-0 items-center gap-2 px-3 pt-2">
-                  {task ? (
-                    <>
-                      <ProjectDot color={task.color} className="size-2.5" />
-                      <Link
-                        href={`/tasks/${task.id}`}
-                        className="min-w-0 truncate text-lg hover:underline"
-                        title={task.project}
-                      >
-                        {task.title}
-                      </Link>
-                    </>
-                  ) : (
-                    <span className="min-w-0 truncate text-lg">General</span>
-                  )}
-                  <span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-                    <span className="max-sm:sr-only">
-                      For{" "}
-                      {recipient?.id === meId
-                        ? "you"
-                        : (recipient?.name.split(" ")[0] ?? "nobody yet")}
-                    </span>
-                    {recipient ? (
-                      <UserAvatar user={recipient} className="size-6 ring-0" />
-                    ) : (
-                      <UserIcon className="size-4" />
-                    )}
-                  </span>
-                </header>
-                <ul className="flex flex-col gap-2.5">
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    {points.map((p) => (
-                      <Point
-                        key={p.id}
-                        item={p}
-                        onResolve={resolve}
-                        onDelete={remove}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </ul>
-              </motion.section>
-            )
-          })}
-        </AnimatePresence>
-        {groups.length === 0 && (
-          <p className="rounded-card bg-muted/60 px-5 py-6 text-sm text-muted-foreground">
-            {fixed ? "Fixed feedback shows up here." : EMPTY[who]}
-          </p>
+        {shown.length ? (
+          <Table className="min-w-3xl table-fixed">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-12 ps-5">
+                  <span className="sr-only">Fixed</span>
+                </TableHead>
+                <TableHead>Feedback</TableHead>
+                <SortHead column="task" label="Task" sort={params} className="w-48" />
+                <SortHead column="for" label="For" sort={params} className="w-36" />
+                <SortHead column="from" label="From" sort={params} className="w-36" />
+                <SortHead column="given" label="Given" sort={params} className="w-28" />
+                <TableHead className="w-14 pe-3">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shown.map((p) => (
+                <Point key={p.id} item={p} meId={meId} onResolve={resolve} onDelete={remove} />
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          empty
         )}
-        <LoadMore
-          left={total - rows.length}
-          pending={appending}
-          onClick={() => setParam("show", String(params.show + FEEDBACK_PAGE), { replace: true })}
-          className="bg-muted/60 ring-0 backdrop-blur-none hover:bg-muted"
-        />
-      </Reveal>
-
+      </DataFrame>
     </>
   )
 }
 
 function Point({
   item,
+  meId,
   onResolve,
   onDelete,
 }: {
   item: FeedbackItem
+  meId: string
   onResolve: (item: FeedbackItem, resolved: boolean) => void
   onDelete: (item: FeedbackItem) => void
 }) {
+  const { projectId } = useParams<{ projectId: string }>()
   const done = item.resolved
+  const note = item.body ? plainText(item.body) : ""
   return (
-    <motion.li
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
-      transition={spring}
-      className="group relative flex gap-3 rounded-row bg-muted/60 py-3 pr-2 pl-3 transition-[background-color,scale] duration-150 ease-out hover:bg-muted has-[[data-row-link]:active]:scale-[0.99] sm:pl-4"
-    >
-      {/* The whole row opens the feedback, like a TaskCard; the controls below sit above this link (z-10). */}
-      <Link
-        href={`/feedback/${item.id}`}
-        data-row-link
-        aria-label="Open feedback"
-        className="absolute inset-0 rounded-row outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-      />
-      {/* Round checkbox, as on TaskCard. */}
-      <button
-        type="button"
-        onClick={() => onResolve(item, !done)}
-        aria-label={done ? "Mark as not fixed" : "Mark as fixed"}
-        aria-pressed={done}
-        className="relative z-10 mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground/30 transition-colors hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-      >
-        <motion.span
-          className="absolute inset-0 rounded-full bg-foreground"
-          initial={false}
-          animate={{ scale: done ? 1 : 0 }}
-          transition={spring}
-        />
-        <svg
-          viewBox="0 0 24 24"
-          className="relative size-3.5 text-background"
-          fill="none"
+    <TableRow className="group">
+      <TableCell className="relative z-10 h-14 ps-5">
+        {/* Round checkbox, as on TaskCard. */}
+        <button
+          type="button"
+          onClick={() => onResolve(item, !done)}
+          aria-label={done ? "Mark as not fixed" : "Mark as fixed"}
+          aria-pressed={done}
+          className="relative grid size-5 place-items-center rounded-full border-[1.5px] border-foreground/30 transition-[border-color,scale] hover:border-foreground/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:scale-90"
         >
-          <motion.path
-            d="M5 12.5l4.5 4.5L19 7.5"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={false}
-            animate={{ pathLength: done ? 1 : 0 }}
-            transition={{ duration: 0.25, delay: done ? 0.08 : 0 }}
-          />
-        </svg>
-      </button>
-      {/* Read-only content lets clicks through to the row link, so anywhere on it opens the feedback. */}
-      <div className="pointer-events-none min-w-0 flex-1">
-        {item.body && (
-          <RichText
-            editable={false}
-            defaultValue={item.body}
-            contentClassName={cn(
-              "text-base",
-              done &&
-                "text-muted-foreground line-through decoration-foreground/30"
-            )}
-          />
-        )}
-        {item.imageId && (
-          <div
-            className={cn(
-              "w-full max-w-lg overflow-hidden rounded-xl bg-card ring-1 ring-foreground/5",
-              item.body && "mt-2.5",
-              done && "opacity-60"
-            )}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it */}
-            <img
-              src={attachmentSrc(item.imageId)}
-              alt=""
-              loading="lazy"
-              className="h-44 w-full object-cover object-top sm:h-56"
+          <motion.span className="absolute inset-0 rounded-full bg-foreground" initial={false} animate={{ scale: done ? 1 : 0 }} transition={spring} />
+          <svg viewBox="0 0 24 24" className="relative size-3 text-background" fill="none">
+            <motion.path
+              d="M5 12.5l4.5 4.5L19 7.5"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              initial={false}
+              animate={{ pathLength: done ? 1 : 0 }}
+              transition={{ duration: 0.25, delay: done ? 0.08 : 0 }}
             />
-          </div>
-        )}
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          {item.author && (
-            <UserAvatar user={item.author} className="size-5 ring-0" />
+          </svg>
+        </button>
+      </TableCell>
+      <TableCell>
+        <span className="flex min-w-0 items-center gap-3">
+          {item.imageId && (
+            // eslint-disable-next-line @next/next/no-img-element -- private, cookie-guarded image; next/image can't fetch it
+            <img src={attachmentSrc(item.imageId)} alt="" loading="lazy" className="size-9 shrink-0 rounded-md bg-muted object-cover object-top ring-1 ring-foreground/5" />
           )}
-          {item.author?.name ?? "Former member"} ·{" "}
-          {item.when}
-        </p>
-      </div>
-      <ChevronRightIcon
-        aria-hidden
-        className="mt-1 size-4 shrink-0 -translate-x-1 text-muted-foreground opacity-0 transition-[opacity,translate] duration-150 ease-out group-hover:translate-x-0 group-hover:opacity-100 max-sm:hidden"
-      />
-      {item.canDelete && (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="Feedback actions"
-            className="relative z-10 grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-[background-color,color,scale] outline-none hover:bg-card hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95"
+          {/* The note's link covers the row; the checkbox and menu sit above it (z-10). */}
+          <Link
+            href={feedbackHref(projectId, item.id)}
+            className={cn(
+              "truncate outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset",
+              done && "text-muted-foreground line-through decoration-foreground/30",
+              !note && "text-muted-foreground"
+            )}
           >
-            <MoreHorizontalIcon className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem render={<Link href={`/feedback/${item.id}`} />}>
-              <PenLineIcon />
-              Edit feedback
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => onDelete(item)}
+            {note || "Screenshot"}
+          </Link>
+        </span>
+      </TableCell>
+      <TableCell>
+        {item.task ? (
+          <span className="flex min-w-0 items-center gap-2" title={item.task.project}>
+            <ProjectDot color={item.task.color} />
+            <span className="truncate">{item.task.title}</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">General</span>
+        )}
+      </TableCell>
+      <TableCell>
+        <PersonCell person={item.recipient} meId={meId} fallback="Nobody yet" />
+      </TableCell>
+      <TableCell>
+        <PersonCell person={item.author} meId={meId} fallback="Former member" />
+      </TableCell>
+      <TableCell className="text-muted-foreground">{item.when}</TableCell>
+      <TableCell className="relative z-10 pe-3 text-right">
+        {item.canDelete && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="Feedback actions"
+              className="grid size-8 place-items-center rounded-lg text-muted-foreground outline-none transition-[background-color,color,scale] hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-95"
             >
-              <Trash2Icon />
-              Delete feedback
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </motion.li>
+              <MoreHorizontalIcon className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem render={<Link href={feedbackHref(projectId, item.id)} />}>
+                <PenLineIcon />
+                Edit feedback
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onClick={() => onDelete(item)}>
+                <Trash2Icon />
+                Delete feedback
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </TableCell>
+    </TableRow>
+  )
+}
+
+function PersonCell({ person, meId, fallback }: { person: Person | null; meId: string; fallback: string }) {
+  if (!person) return <span className="text-muted-foreground">{fallback}</span>
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <UserAvatar user={person} className="size-6 ring-0" />
+      <span className="truncate">{person.id === meId ? "You" : person.name.split(" ")[0]}</span>
+    </span>
   )
 }
 
@@ -433,6 +344,7 @@ function Point({
 // the side panel, and the dark pill to mark it fixed (or reopen it).
 export function FeedbackDetail({ item }: { item: FeedbackItem }) {
   const router = useRouter()
+  const { projectId } = useParams<{ projectId: string }>()
   const [resolved, setResolved] = useOptimistic(item.resolved)
   const [pending, start] = useTransition()
   const title = item.body ? plainText(item.body).slice(0, 80) : "Screenshot"
@@ -479,14 +391,14 @@ export function FeedbackDetail({ item }: { item: FeedbackItem }) {
       const res = await deleteFeedback(item.id)
       if (res.error) return void toast.error(res.error)
       toast.success("Feedback deleted")
-      router.replace("/feedback")
+      router.replace(feedbackHref(projectId))
     })
   }
 
   return (
     <div data-focus className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-2">
-        <Crumbs onBack={() => router.back()} trail={[{ href: "/feedback", label: "Feedback" }]} current={title} />
+        <Crumbs onBack={() => router.back()} trail={[{ href: feedbackHref(projectId), label: "Feedback" }]} current={title} />
         <div className="flex shrink-0 items-center gap-2">
           <PanelToggle />
           <Button
@@ -515,7 +427,7 @@ export function FeedbackDetail({ item }: { item: FeedbackItem }) {
               </SideProp>
               <SideProp icon={ListChecksIcon} label="Task">
                 {item.task ? (
-                  <Link href={`/tasks/${item.task.id}`} className="flex min-w-0 items-center gap-2 px-2.5 hover:underline">
+                  <Link href={taskHref(projectId, item.task.id)} className="flex min-w-0 items-center gap-2 px-2.5 hover:underline">
                     <ProjectDot color={item.task.color} />
                     <span className="truncate">{item.task.title}</span>
                   </Link>
@@ -639,6 +551,7 @@ export function GiveFeedback({
   taskId?: string
 }) {
   const router = useRouter()
+  const { projectId } = useParams<{ projectId: string }>()
   const [taskId, setTaskId] = useState(linked ?? saved.taskId)
   const [recipientId, setRecipientId] = useState(saved.recipientId)
   const [empty, setEmpty] = useState(!saved.draft)
@@ -665,13 +578,14 @@ export function GiveFeedback({
     const form = new FormData()
     if (task) form.set("taskId", task.id)
     else form.set("recipientId", recipientId)
+    form.set("projectId", projectId)
     form.set("body", editor.current.getMarkdown())
     start(async () => {
       const res = await createFeedback(form)
       if (res.error) return setError(res.error)
       Object.assign(saved, { taskId: "", recipientId: "", draft: "" })
       toast.success(forName ? `Sent feedback to ${forName.split(" ")[0]}` : "Feedback saved")
-      router.replace("/feedback")
+      router.replace(feedbackHref(projectId))
     })
   }
 
@@ -688,7 +602,7 @@ export function GiveFeedback({
       <div className="flex items-center justify-between gap-2">
         <Crumbs
           onBack={() => router.back()}
-          trail={[{ href: "/feedback", label: "Feedback" }]}
+          trail={[{ href: feedbackHref(projectId), label: "Feedback" }]}
           current="Give feedback"
         />
         <div className="flex shrink-0 items-center gap-2">

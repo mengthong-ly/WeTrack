@@ -3,6 +3,7 @@
 
 export const CREATE_PROJECT_HREF = "/create"
 export const projectHref = (projectId: string) => `/projects/${projectId}`
+export const editProjectHref = (projectId: string) => `/projects/${projectId}/edit`
 export const tasksHref = (projectId: string, query?: string) => `/projects/${projectId}/tasks${query ? `?${query}` : ""}`
 export const taskHref = (projectId: string, taskId: string) => `/projects/${projectId}/tasks/${taskId}`
 // The New task page in `projectId`, with any other preset fields (priority, status, assigneeId) in the query.

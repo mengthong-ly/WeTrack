@@ -1,0 +1,68 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - generic [ref=f5e6]:
+      - generic [ref=f5e7]:
+        - list [ref=f5e9]:
+          - listitem [ref=f5e10]:
+            - link "w. WeTrack Weshop" [ref=f5e12] [cursor=pointer]:
+              - /url: /projects
+              - generic [ref=f5e13]: w.
+              - generic [ref=f5e14]:
+                - generic [ref=f5e15]: WeTrack
+                - generic [ref=f5e16]: Weshop
+        - generic [ref=f5e17]:
+          - list [ref=f5e19]:
+            - listitem [ref=f5e20]:
+              - link "New project" [ref=f5e22] [cursor=pointer]:
+                - /url: /create
+          - generic [ref=f5e25]:
+            - generic [ref=f5e26]: Navigate
+            - list [ref=f5e28]:
+              - listitem [ref=f5e29]:
+                - link "Projects" [ref=f5e31] [cursor=pointer]:
+                  - /url: /projects
+              - listitem [ref=f5e36]:
+                - link "Workspace" [ref=f5e38] [cursor=pointer]:
+                  - /url: /workspace
+              - listitem [ref=f5e44]:
+                - link "Meetings" [ref=f5e46] [cursor=pointer]:
+                  - /url: /meetings
+              - listitem [ref=f5e50]:
+                - link "Team" [ref=f5e52] [cursor=pointer]:
+                  - /url: /team
+              - listitem [ref=f5e59]:
+                - link "Archive" [ref=f5e61] [cursor=pointer]:
+                  - /url: /archive
+        - button "Account" [ref=f5e68]:
+          - generic [ref=f5e69]: M
+          - generic [ref=f5e71]:
+            - generic [ref=f5e72]: Mengthong
+            - generic [ref=f5e73]: luyinfai@gmail.com
+      - button "Toggle Sidebar" [ref=f5e77]
+    - main [ref=f5e78]:
+      - generic [ref=f5e79]:
+        - button "Toggle Sidebar" [ref=f5e80]
+        - separator [ref=f5e82]
+        - button "Weshop Select a project" [ref=f5e83] [cursor=pointer]:
+          - generic [ref=f5e84]: Weshop
+          - generic [aria-hidden] [ref=f5e85]: /
+          - generic [ref=f5e87]: Select a project
+        - separator [ref=f5e88]
+        - generic [ref=f5e89]: Workspace
+        - generic [ref=f5e90]:
+          - button "Search and commands" [ref=f5e91] [cursor=pointer]:
+            - generic [ref=f5e92]: Search…
+            - generic [ref=f5e93]:
+              - generic: ⌘
+              - generic: K
+          - button "Notifications" [ref=f5e94]
+      - generic [ref=f5e98]:
+        - heading "Workspace" [level=1] [ref=f5e99]
+        - generic [ref=f5e101]:
+          - img "3D view of 1 projects, 0 tasks and 1 people. Drag to move around, Shift-drag or right-drag to turn, scroll or pinch to zoom, click something to focus it." [ref=f5e102]
+          - generic:
+            - generic:
+              - paragraph: Setting up your workspace
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=f5e108] [cursor=pointer]
+  - alert [ref=f5e112]

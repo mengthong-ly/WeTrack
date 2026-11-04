@@ -1,0 +1,51 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - list [ref=e9]:
+          - listitem [ref=e10]:
+            - link "w. WeTrack Weshop" [ref=e12] [cursor=pointer]:
+              - /url: /projects
+              - generic [ref=e13]: w.
+              - generic [ref=e14]:
+                - generic [ref=e15]: WeTrack
+                - generic [ref=e16]: Weshop
+        - generic [ref=e17]:
+          - list [ref=e19]:
+            - listitem [ref=e20]:
+              - link "New project" [ref=e22] [cursor=pointer]:
+                - /url: /create
+          - generic [ref=e25]:
+            - generic [ref=e26]: Navigate
+            - list [ref=e28]:
+              - listitem [ref=e29]:
+                - link "Projects" [ref=e31] [cursor=pointer]:
+                  - /url: /projects
+              - listitem [ref=e36]:
+                - link "Workspace" [ref=e38] [cursor=pointer]:
+                  - /url: /workspace
+              - listitem [ref=e44]:
+                - link "Meetings" [ref=e46] [cursor=pointer]:
+                  - /url: /meetings
+              - listitem [ref=e50]:
+                - link "Team" [ref=e52] [cursor=pointer]:
+                  - /url: /team
+              - listitem [ref=e59]:
+                - link "Archive" [ref=e61] [cursor=pointer]:
+                  - /url: /archive
+      - button "Toggle Sidebar" [ref=e68]
+    - main [ref=e69]:
+      - generic [ref=e70]:
+        - button "Toggle Sidebar" [ref=e71]
+        - separator [ref=e73]
+        - separator [ref=e75]
+        - generic [ref=e76]: Workspace
+        - button "Search and commands" [ref=e78] [cursor=pointer]:
+          - generic [ref=e79]: Search…
+          - generic [ref=e80]:
+            - generic: ⌘
+            - generic: K
+      - status [ref=e83]:
+        - paragraph [ref=e86]: Setting up your workspace
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e92] [cursor=pointer]

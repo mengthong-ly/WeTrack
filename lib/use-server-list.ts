@@ -5,12 +5,11 @@ import { toast } from "sonner"
 
 export type ListPage<T> = { key: string; rows: T[]; total: number }
 
-// A list whose state lives in the URL (filters, search, ?show= for how many rows): the server renders the page
-// for the URL it was asked for (`initial`); when the URL changes on the client (History API, no navigation) this
-// fetches `${endpoint}?${key}` instead. Raising only ?show= fetches just the missing rows (?offset=) and appends
-// them. A later server render for the current key (an edit refreshes the page) replaces what's loaded, so rows
-// never go stale and optimistic updates hand over without a gap. `pending` while the URL is ahead of the rows,
-// `appending` when that's only Load more.
+// A paged table whose state lives in the URL (filters, search, ?page=): the server renders the page for the URL it
+// was asked for (`initial`); when the URL changes on the client (History API, no navigation) this fetches
+// `${endpoint}?${key}` instead. A later server render for the current key (an edit refreshes the page) replaces
+// what's loaded, so rows never go stale and optimistic updates hand over without a gap. `pending` while the URL is
+// ahead of the rows: the old page stays on screen, dimmed, until the new one lands.
 export function useServerList<P extends ListPage<{ id: string }>>(initial: P, key: string, endpoint: string) {
   const [page, setPage] = useState(initial)
   const [seen, setSeen] = useState(initial)
@@ -21,34 +20,15 @@ export function useServerList<P extends ListPage<{ id: string }>>(initial: P, ke
 
   useEffect(() => {
     if (page.key === key) return
-    const want = new URLSearchParams(key)
-    const more =
-      withoutShow(want) === withoutShow(new URLSearchParams(page.key)) &&
-      page.rows.length < page.total &&
-      Number(want.get("show")) > page.rows.length
-    if (more) want.set("offset", String(page.rows.length))
     const ctrl = new AbortController()
-    fetch(`${endpoint}?${want}`, { signal: ctrl.signal })
+    fetch(`${endpoint}?${key}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
-      .then((next: P) => {
-        if (!more) return setPage({ ...next, key })
-        const ids = new Set(page.rows.map((r) => r.id))
-        setPage({ ...next, key, rows: [...page.rows, ...next.rows.filter((r) => !ids.has(r.id))] })
-      })
+      .then((next: P) => setPage({ ...next, key }))
       .catch((e: Error) => e.name !== "AbortError" && toast.error("Couldn't load the list. Try again."))
     return () => ctrl.abort()
   }, [key, page, endpoint])
 
-  // Only ?show= went up: the rows on screen stay valid and the next ones are on their way.
-  const appending = page.key !== key && withoutShow(new URLSearchParams(key)) === withoutShow(new URLSearchParams(page.key))
-  return { ...page, pending: page.key !== key, appending }
-}
-
-function withoutShow(q: URLSearchParams) {
-  const c = new URLSearchParams(q)
-  c.delete("show")
-  c.sort()
-  return c.toString()
+  return { ...page, pending: page.key !== key }
 }
 
 // A newest-first feed (comments, sent client updates): the server renders the latest rows and the total; `more`

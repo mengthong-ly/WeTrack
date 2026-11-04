@@ -27,6 +27,7 @@ working on, for which client, when is it due, and when does it reach staging and
 - **release** — one row per version per project with staging planned/actual and production planned/actual. Release dates live only here; a task shows them through its release.
 - **feedback** — one point on a task (note and/or screenshot, stored as `bytea`), author, recipient (the task's assignee when written), resolved at.
 - **activity** — append-only log (task created, status changed, completed, deadline changed; releases in M3). `reported_in_update_id` null = not yet told to the client (M2).
+- **log** — who did what: one row per action that changes data (`audit()` in `app/actions.ts`: `action` like `project.create`, `target_id`, `project_id`, a `label` snapshot of the name, small `data`). Separate from `activity`, which only feeds client updates. No secrets in it; it keeps history after the thing is deleted.
 - **client_update**, **share_link** (hashed token) — milestone 2.
 
 Derived, never stored (`lib/schedule.ts`, unit-tested): days left, schedule health

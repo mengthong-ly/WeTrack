@@ -49,6 +49,7 @@ import { HEALTH, PROJECT_COLORS, PROJECT_HEALTH, STATUS } from "@/lib/labels"
 import type { MemberLite } from "@/lib/options"
 import type { SceneData, SceneMember, SceneProject } from "@/lib/scene"
 import { cn, isTyping } from "@/lib/utils"
+import { taskHref, updatesHref } from "@/lib/routes"
 
 /**
  * The 3D workspace: the scene fills the screen and is where work is managed.
@@ -110,11 +111,14 @@ export function Workspace({
   const fly = useCallback((pick: ScenePick) => setFocus((f) => ({ pick, n: (f?.n ?? 0) + 1 })), [])
   const openPanel = useCallback(
     (p: ScenePick) => {
-      if (p.kind === "task") return router.push(`/tasks/${p.id}`, { scroll: false })
+      if (p.kind === "task") {
+        const projectId = scene.tasks.find((t) => t.id === p.id)?.projectId
+        return projectId && router.push(taskHref(projectId, p.id), { scroll: false })
+      }
       setPanel(p)
       setOpen(true)
     },
-    [router]
+    [router, scene.tasks]
   )
   // From the Outline: fly the camera there and open the same panel a click in 3D would.
   const reach = (p: ScenePick) => {
@@ -198,8 +202,8 @@ export function Workspace({
   return (
     <>
       <h1 className="sr-only">Workspace</h1>
-      {/* Fills the screen under the header; the header and the dock sit above it. */}
-      <div className="fixed inset-x-0 top-20 bottom-0 sm:top-24 lg:left-24">
+      {/* Fills the inset panel under its header (SidebarInset is the positioned box). */}
+      <div className="absolute inset-x-0 top-14 bottom-0">
         <ProjectScene
           data={scene}
           chrome="page"
@@ -589,8 +593,8 @@ function WorkspacePanel({
         <div className="flex flex-wrap gap-2">
           <NewTaskButton onClick={onNewTask} />
           <NewProject variant="button" />
-          <Link href="/tasks" className={cn(pill, "bg-muted hover:bg-foreground hover:text-background")}>
-            All tasks
+          <Link href="/projects" className={cn(pill, "bg-muted hover:bg-foreground hover:text-background")}>
+            All projects
           </Link>
         </div>
         <Rows>
@@ -784,7 +788,7 @@ function ProjectPanel({
           <Row
             icon={MessageSquareTextIcon}
             meta={unreported > 0 && <span className="tabular">{unreported} to tell</span>}
-            onClick={() => router.push(`/projects/${project.id}/updates`, { scroll: false })}
+            onClick={() => router.push(updatesHref(project.id), { scroll: false })}
           >
             Client updates
           </Row>

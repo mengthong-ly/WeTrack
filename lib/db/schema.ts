@@ -41,6 +41,7 @@ export const project = pgTable(
     id: id(),
     organizationId: orgId(),
     name: text("name").notNull(),
+    description: text("description"),
     color: text("color").notNull().default("#737373"),
     logoId: text("logo_id").references((): AnyPgColumn => attachment.id, { onDelete: "set null" }),
     archived: boolean("archived").notNull().default(false),
@@ -143,6 +144,26 @@ export const activity = pgTable(
   ]
 )
 
+// Who did what, newest first: one row per action that changes data (written by audit() in app/actions.ts).
+// Unlike `activity` it covers everything people do, not just task events, and it outlives what it points at:
+// `label` keeps the name, and `target_id` / `project_id` are plain text so deleting a project leaves its history.
+// Secrets (the Slack URL, share tokens) never go in `data`.
+export const logEntry = pgTable(
+  "log",
+  {
+    id: id(),
+    organizationId: orgId(),
+    actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
+    action: text("action").notNull(), // "project.create", "task.update", "member.role" …
+    targetId: text("target_id"),
+    projectId: text("project_id"),
+    label: text("label"),
+    data: jsonb("data").$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("log_org_idx").on(t.organizationId, t.createdAt), index("log_actor_idx").on(t.actorId)]
+)
+
 // A message sent to a client; the activity rows it covered point back here.
 export const clientUpdate = pgTable(
   "client_update",
@@ -235,6 +256,9 @@ export const feedback = pgTable(
   {
     id: id(),
     organizationId: orgId(),
+    // The project it's about: the task's project, or the one it was given in when it names no task. Null only for
+    // points given before feedback moved into projects without a task.
+    projectId: text("project_id").references(() => project.id, { onDelete: "cascade" }),
     taskId: text("task_id").references(() => task.id, { onDelete: "set null" }),
     authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
     recipientId: text("recipient_id").references(() => user.id, { onDelete: "set null" }),
@@ -243,7 +267,11 @@ export const feedback = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index("feedback_org_idx").on(t.organizationId, t.createdAt), index("feedback_task_idx").on(t.taskId)]
+  (t) => [
+    index("feedback_org_idx").on(t.organizationId, t.createdAt),
+    index("feedback_task_idx").on(t.taskId),
+    index("feedback_project_idx").on(t.projectId, t.createdAt),
+  ]
 )
 
 // Every stored image: pasted into a task description or comment (linked from the Markdown as
@@ -262,6 +290,44 @@ export const attachment = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("attachment_org_idx").on(t.organizationId)]
+)
+
+// One thing someone should hear about: assigned to them, a comment or change on their task, feedback for them.
+// Written by notify() (lib/notify.ts), which also pushes it to their browsers. Opening the inbox sets `read_at`
+// on everything unread, so the count is "since you last looked".
+export const notification = pgTable(
+  "notification",
+  {
+    id: id(),
+    organizationId: orgId(),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    taskId: text("task_id").references(() => task.id, { onDelete: "cascade" }),
+    feedbackId: text("feedback_id").references(() => feedback.id, { onDelete: "cascade" }),
+    data: jsonb("data").$type<Record<string, unknown>>(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("notification_recipient_idx").on(t.recipientId, t.createdAt)]
+)
+
+// A browser that agreed to push notifications. The endpoint is the push service's URL for that browser;
+// a 404/410 from it means the subscription is gone, and the row is deleted.
+export const pushSubscription = pgTable(
+  "push_subscription",
+  {
+    endpoint: text("endpoint").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("push_subscription_user_idx").on(t.userId)]
 )
 
 export const projectRelations = relations(project, ({ many }) => ({
@@ -299,6 +365,7 @@ export const feedbackRelations = relations(feedback, ({ one }) => ({
   recipient: one(user, { fields: [feedback.recipientId], references: [user.id] }),
 }))
 
+export type LogEntry = typeof logEntry.$inferSelect
 export type Task = typeof task.$inferSelect
 export type Meeting = typeof meeting.$inferSelect
 export type Member = typeof member.$inferSelect

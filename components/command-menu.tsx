@@ -1,9 +1,10 @@
 "use client"
 
 import {
+  BoxIcon,
+  CalendarDaysIcon,
   CornerDownLeftIcon,
   FolderIcon,
-  KanbanIcon,
   LayoutGridIcon,
   ListChecksIcon,
   type LucideIcon,
@@ -11,13 +12,14 @@ import {
   MoonIcon,
   PlusIcon,
   SearchIcon,
+  SendIcon,
   SunIcon,
   UserIcon,
   UsersIcon,
   VideoIcon,
 } from "lucide-react"
 import { useTheme } from "next-themes"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { ProjectDot, UserAvatar } from "@/components/bits"
@@ -27,18 +29,16 @@ import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
 import { STATUS } from "@/lib/labels"
 import type { MemberLite, ProjectLite } from "@/lib/options"
 import type { TaskIndexRow } from "@/lib/queries"
+import { feedbackHref, projectHref, projectIdFromPath, taskHref, tasksHref, updatesHref } from "@/lib/routes"
 import { cn } from "@/lib/utils"
 
-// Fired by C, the dock's "+", ⌘K and panels; NewTaskHost opens the New task page with the detail as its preset.
+// Fired by C, the sidebar's New task, ⌘K and panels; NewTaskHost opens the New task page with the detail as its preset.
 export const NEW_TASK_EVENT = "wetrack:new-task"
-// The round search buttons in the rail and dock open the one CommandMenu with this.
+// The header's search button opens the one CommandMenu with this.
 export const SEARCH_EVENT = "wetrack:search"
 // Fields a caller can fill in before the page opens (a priority group's "Add task", a 3D station's "New task").
+// `projectId` picks the project; without one, NewTaskHost uses the project you're in.
 export type NewTaskPreset = { priority?: TaskPriority; status?: TaskStatus; projectId?: string; assigneeId?: string }
-export function newTaskHref(preset: NewTaskPreset = {}) {
-  const query = new URLSearchParams(Object.entries(preset).filter((e): e is [string, string] => !!e[1]))
-  return query.size ? `/tasks/new?${query}` : "/tasks/new"
-}
 
 type Item = {
   id: string
@@ -66,6 +66,8 @@ export function CommandMenu({
   meId: string
 }) {
   const router = useRouter()
+  // The project you're in (task mode): its pages and filters join the list. None while picking a project.
+  const here = projectIdFromPath(usePathname())
   const { resolvedTheme, setTheme } = useTheme()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -90,11 +92,14 @@ export function CommandMenu({
 
   const items = useMemo<Item[]>(() => {
     const go = (href: string) => () => router.push(href)
+    const inProject = (items: Item[]) => (here ? items : [])
     return [
-      { id: "new", group: "Actions", label: "New task", icon: icon(PlusIcon), hint: <kbd className={kbd}>C</kbd>, run: () => window.dispatchEvent(new Event(NEW_TASK_EVENT)) },
-      { id: "give-feedback", group: "Actions", label: "Give feedback", icon: icon(MessageSquareQuoteIcon), keywords: "review notes screenshots", run: go("/feedback/new") },
+      ...inProject([
+        { id: "new", group: "Actions", label: "New task", icon: icon(PlusIcon), hint: <kbd className={kbd}>C</kbd>, run: () => window.dispatchEvent(new Event(NEW_TASK_EVENT)) },
+        { id: "give-feedback", group: "Actions", label: "Give feedback", icon: icon(MessageSquareQuoteIcon), keywords: "review notes screenshots", run: go(here ? `${feedbackHref(here)}/new` : "/projects") },
+      ]),
       { id: "meeting", group: "Actions", label: "New meeting", icon: icon(VideoIcon), keywords: "schedule google meet call", run: () => openNewMeeting() },
-      { id: "mine", group: "Actions", label: "My open tasks", icon: icon(UserIcon), run: go(`/tasks?person=${meId}&status=open`) },
+      ...inProject([{ id: "mine", group: "Actions", label: "My open tasks", icon: icon(UserIcon), run: go(tasksHref(here ?? "", `person=${meId}&status=open`)) }]),
       {
         id: "theme",
         group: "Actions",
@@ -103,25 +108,30 @@ export function CommandMenu({
         keywords: "theme dark light",
         run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
       },
-      { id: "home", group: "Go to", label: "Home", icon: icon(LayoutGridIcon), keywords: "dashboard", run: go("/") },
-      { id: "tasks", group: "Go to", label: "Tasks", icon: icon(ListChecksIcon), keywords: "list", run: go("/tasks") },
-      { id: "board", group: "Go to", label: "Board", icon: icon(KanbanIcon), keywords: "kanban", run: go("/tasks?view=board") },
-      { id: "projects", group: "Go to", label: "Projects", icon: icon(FolderIcon), keywords: "clients", run: go("/projects") },
-      { id: "feedback", group: "Go to", label: "Feedback", icon: icon(MessageSquareQuoteIcon), keywords: "review notes screenshots", run: go("/feedback") },
+      ...inProject([
+        { id: "overview", group: "Go to", label: "Overview", icon: icon(LayoutGridIcon), keywords: "project home", run: go(projectHref(here ?? "")) },
+        { id: "tasks", group: "Go to", label: "Tasks", icon: icon(ListChecksIcon), keywords: "list", run: go(tasksHref(here ?? "")) },
+        { id: "feedback", group: "Go to", label: "Feedback", icon: icon(MessageSquareQuoteIcon), keywords: "review notes screenshots", run: go(feedbackHref(here ?? "")) },
+        { id: "updates", group: "Go to", label: "Client updates", icon: icon(SendIcon), keywords: "report client", run: go(updatesHref(here ?? "")) },
+      ]),
+      { id: "projects", group: "Go to", label: "All projects", icon: icon(FolderIcon), keywords: "clients pick switch", run: go("/projects") },
+      { id: "workspace", group: "Go to", label: "Workspace", icon: icon(BoxIcon), keywords: "3d overview", run: go("/workspace") },
+      { id: "meetings", group: "Go to", label: "Meetings", icon: icon(CalendarDaysIcon), keywords: "calls google meet", run: go("/meetings") },
       { id: "team", group: "Go to", label: "Team", icon: icon(UsersIcon), keywords: "workload people", run: go("/team") },
       ...projects.map((p) => ({
         id: `p-${p.id}`,
         group: "Projects",
         label: p.name,
         icon: <ProjectDot color={p.color} className="mx-1" />,
-        run: go(`/tasks?project=${p.id}`),
+        run: go(projectHref(p.id)),
       })),
+      // In a project a person filters its tasks; while picking a project, the Team page shows everyone's load.
       ...members.map((m) => ({
         id: `m-${m.id}`,
         group: "People",
         label: m.id === meId ? `${m.name} (me)` : m.name,
         icon: <UserAvatar user={m} className="size-5 ring-0" />,
-        run: go(`/tasks?person=${m.id}`),
+        run: go(here ? tasksHref(here, `person=${m.id}`) : "/team"),
       })),
       ...tasks.map((t) => ({
         id: `t-${t.id}`,
@@ -130,10 +140,10 @@ export function CommandMenu({
         keywords: t.projectName,
         icon: <ProjectDot color={t.projectColor} className="mx-1" />,
         hint: <span className={cn("text-xs", STATUS[t.status].className)}>{STATUS[t.status].label}</span>,
-        run: go(`/tasks/${t.id}`),
+        run: go(taskHref(t.projectId, t.id)),
       })),
     ]
-  }, [tasks, projects, members, meId, router, resolvedTheme, setTheme])
+  }, [tasks, projects, members, meId, router, resolvedTheme, setTheme, here])
 
   const q = query.trim().toLowerCase()
   const shown = useMemo(() => {

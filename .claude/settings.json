@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(ls; ls *)",
-      "Read(//Users/lymengthong/**)"
+      "Read(//Users/lymengthong/**)",
+      "ClaudeInChromeDomain(coss.com)"
     ]
   }
 }

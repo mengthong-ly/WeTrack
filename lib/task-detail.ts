@@ -1,10 +1,10 @@
-import { cookies } from "next/headers"
+import { notFound } from "next/navigation"
 
 import type { NewTaskPreset } from "@/components/command-menu"
 import type { TaskDetailData } from "@/components/task-detail"
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/db/enums"
-import { LAST_PROJECT_COOKIE, type MemberLite, type ProjectLite } from "@/lib/options"
-import { getTask, listMembers, listProjects, meetingItems, taskComments, taskMeetings, taskTree } from "@/lib/queries"
+import type { MemberLite, ProjectLite } from "@/lib/options"
+import { getProject, getTask, listMembers, listProjects, meetingItems, taskComments, taskMeetings, taskTree } from "@/lib/queries"
 import { daysLeft, health, releaseStage, todayISO } from "@/lib/schedule"
 import type { requireMember } from "@/lib/session"
 import { placeInTree } from "@/lib/task-tree"
@@ -64,21 +64,22 @@ export async function loadTaskDetail(me: Me, id: string) {
   }
 }
 
-// The New task page and the workspace's sheet (@panel/(..)tasks/new) both load this.
-export async function loadNewTask(me: Me, searchParams: PageProps<"/tasks/new">["searchParams"]) {
-  const [projects, members, query, jar] = await Promise.all([
+// The New task page and the workspace's sheet (@panel/(..)projects/[projectId]/tasks/new) both load this. The
+// task goes in the route's project; a project that isn't in this workspace is a 404.
+export async function loadNewTask(me: Me, projectId: string, searchParams: PageProps<"/projects/[projectId]/tasks/new">["searchParams"]) {
+  const [projects, members, query, project] = await Promise.all([
     listProjects(me.orgId),
     listMembers(me.orgId),
     searchParams,
-    cookies(),
+    getProject(me.orgId, projectId),
   ])
+  if (!project) notFound()
   const one = (k: string) => (typeof query[k] === "string" ? query[k] : undefined)
   const has = (list: readonly string[], v?: string) => (v && list.includes(v) ? v : undefined)
   const projectLite: ProjectLite[] = projects.map(({ id, name, color }) => ({ id, name, color }))
   const memberLite: MemberLite[] = members.map(({ id, name, image }) => ({ id, name, image }))
-  const ids = projectLite.map((p) => p.id)
   const preset: NewTaskPreset = {
-    projectId: has(ids, one("projectId")) ?? has(ids, jar.get(LAST_PROJECT_COOKIE)?.value),
+    projectId: project.id,
     assigneeId: has(memberLite.map((m) => m.id), one("assigneeId")),
     priority: has(TASK_PRIORITIES, one("priority")) as NewTaskPreset["priority"],
     status: has(TASK_STATUSES, one("status")) as NewTaskPreset["status"],
@@ -94,7 +95,7 @@ export async function loadNewTask(me: Me, searchParams: PageProps<"/tasks/new">[
     progress: 0,
     startDate: null,
     deadline: null,
-    projectId: preset.projectId ?? projectLite[0]?.id ?? "",
+    projectId: project.id,
     assigneeId: preset.assigneeId ?? me.user.id,
     health: "no_deadline",
     daysLeft: null,

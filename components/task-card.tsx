@@ -18,6 +18,7 @@ import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
 import { formatDate, HEALTH, PRIORITY } from "@/lib/labels"
 import type { Health } from "@/lib/schedule"
 import { cn } from "@/lib/utils"
+import { taskHref } from "@/lib/routes"
 
 export type TaskCardData = {
   id: string
@@ -28,6 +29,7 @@ export type TaskCardData = {
   deadline: string | null
   progress: number
   health: Health
+  projectId: string
   project: { name: string; color: string }
   assignee: { name: string; image: string | null } | null
   subtasks: { done: number; total: number }
@@ -81,7 +83,7 @@ export function TaskCard({
           <span className={cn("min-w-0 flex-1 truncate", done && "text-muted-foreground line-through decoration-foreground/30")}>{task.title}</span>
         ) : (
           <Link
-            href={`/tasks/${task.id}`}
+            href={taskHref(task.projectId, task.id)}
             className={cn(
               "min-w-0 flex-1 truncate after:absolute after:inset-0 after:rounded-row",
               done && "text-muted-foreground line-through decoration-foreground/30"
@@ -147,7 +149,7 @@ export function TaskCard({
             </span>
           ) : (
             <Link
-              href={`/tasks/${task.id}`}
+              href={taskHref(task.projectId, task.id)}
               className={cn(
                 "block text-lg leading-snug transition-colors after:absolute after:inset-0 after:rounded-card sm:text-xl",
                 done &&

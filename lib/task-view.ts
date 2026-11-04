@@ -15,18 +15,18 @@ export function toCard(t: TaskRow, today: string): TaskCardData {
     deadline: t.deadline,
     progress: effectiveProgress(t),
     health: health(t, today),
+    projectId: t.projectId,
     project: t.project,
     assignee: t.assignee,
     subtasks: { done: t.subtasks.filter((s) => s.status === "completed").length, total: t.subtasks.length },
   }
 }
 
-// A row of the Tasks page: the card, plus the start of its description for the document thumbnail.
+// A row of the Tasks page: the card, plus the start of its description for the Cards view's document thumbnail.
 export function toBrowserTask(t: PagedTaskRow, today: string): BrowserTask {
   return {
     ...toCard({ ...t, preview: t.body }, today),
     body: t.body,
-    projectId: t.projectId,
     assigneeId: t.assigneeId,
     completedAt: t.completedAt?.getTime() ?? null,
   }

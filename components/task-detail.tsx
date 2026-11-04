@@ -24,7 +24,7 @@ import { format } from "date-fns"
 import { AnimatePresence, motion } from "motion/react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useOptimistic, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
@@ -56,6 +56,7 @@ import { type Captured, parseCapture } from "@/lib/quick-capture"
 import type { Health, ReleaseStage } from "@/lib/schedule"
 import { useFeed } from "@/lib/use-server-list"
 import { cn } from "@/lib/utils"
+import { feedbackHref, taskHref, tasksHref } from "@/lib/routes"
 
 // Tiptap loads after the page; until then read-only text shows as written.
 const RichText = dynamic(() => import("@/components/rich-text").then((m) => m.RichText))
@@ -151,7 +152,7 @@ export function TaskDetail({
     toast.success("Task deleted")
     const parent = task.ancestors.at(-1)
     if (inPanel) back()
-    else router.push(parent ? `/tasks/${parent.id}` : "/tasks")
+    else router.push(parent ? taskHref(task.projectId, parent.id) : tasksHref(task.projectId))
   }
 
   // Quick capture: "#project @person due fri !urgent" in the new title fills the fields as you type.
@@ -190,7 +191,7 @@ export function TaskDetail({
       for (const t of queued) await addSubtask(res.id, t)
       toast.success("Task added")
       // The new task's page takes this one's place, so Back skips the empty form.
-      router.replace(`/tasks/${res.id}`)
+      router.replace(taskHref(task.projectId, res.id))
     })
   }
 
@@ -221,7 +222,10 @@ export function TaskDetail({
       <div className="flex items-center justify-between gap-2">
         <Crumbs
           onBack={back}
-          trail={[{ href: "/tasks", label: "Tasks" }, ...task.ancestors.map((a) => ({ href: `/tasks/${a.id}`, label: a.title }))]}
+          trail={[
+            { href: tasksHref(task.projectId), label: "Tasks" },
+            ...task.ancestors.map((a) => ({ href: taskHref(task.projectId, a.id), label: a.title })),
+          ]}
           current={draft ? "New task" : task.title}
         />
         <div className="flex shrink-0 items-center gap-2">
@@ -259,7 +263,7 @@ export function TaskDetail({
               <SideAction icon={PlusIcon} onClick={() => addRef.current?.focus()}>Add sub-task</SideAction>
               {!draft && (
                 <>
-                  <SideAction icon={MessageSquareQuoteIcon} onClick={() => router.push(`/feedback/new?task=${task.id}`)}>Give feedback</SideAction>
+                  <SideAction icon={MessageSquareQuoteIcon} onClick={() => router.push(`${feedbackHref(task.projectId)}/new?task=${task.id}`)}>Give feedback</SideAction>
                   <SideAction icon={VideoIcon} onClick={() => openNewMeeting({ title: task.title, taskId: task.id })}>Schedule meeting</SideAction>
                   <SideAction icon={Trash2Icon} onClick={remove} destructive>Delete task</SideAction>
                 </>
@@ -475,6 +479,7 @@ function TaskFields({
 
 // Left column on wide screens: the task's family as an outline, like a document's table of contents.
 function Contents({ family, current }: { family: TaskDetailData["family"]; current: string }) {
+  const { projectId } = useParams<{ projectId: string }>() // a task's family is all in its project
   return (
     <nav aria-label="Contents" className="flex flex-col gap-0.5">
       <h2 className="px-3 pb-1 text-xs text-muted-foreground">Contents</h2>
@@ -483,7 +488,7 @@ function Contents({ family, current }: { family: TaskDetailData["family"]; curre
         return (
           <Link
             key={f.id}
-            href={`/tasks/${f.id}`}
+            href={taskHref(projectId, f.id)}
             aria-current={here ? "page" : undefined}
             style={{ paddingLeft: `${0.75 + f.depth * 1}rem` }}
             className={cn(
@@ -628,6 +633,7 @@ function Subtasks({
   /** A task not saved yet: keep the title to add once it exists. */
   onAdd?: (title: string) => void
 }) {
+  const { projectId } = useParams<{ projectId: string }>() // sub-tasks are always in their parent's project
   const [, start] = useTransition()
   const [items, apply] = useOptimistic(
     subtasks,
@@ -698,7 +704,7 @@ function Subtasks({
                   <span className="min-w-0 flex-1 truncate text-base">{s.title}</span>
                 ) : (
                   <Link
-                    href={`/tasks/${s.id}`}
+                    href={taskHref(projectId, s.id)}
                     className={cn(
                       "min-w-0 flex-1 truncate text-base outline-none after:absolute after:inset-0 after:rounded-row focus-visible:underline",
                       isDone && "text-muted-foreground line-through decoration-foreground/30"

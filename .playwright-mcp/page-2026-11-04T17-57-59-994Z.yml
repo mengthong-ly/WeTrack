@@ -1,0 +1,80 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - list [ref=e9]:
+          - listitem [ref=e10]:
+            - link "w. WeTrack Weshop" [ref=e12] [cursor=pointer]:
+              - /url: /projects
+              - generic [ref=e13]: w.
+              - generic [ref=e14]:
+                - generic [ref=e15]: WeTrack
+                - generic [ref=e16]: Weshop
+        - generic [ref=e17]:
+          - list [ref=e19]:
+            - listitem [ref=e20]:
+              - link "New project" [ref=e22] [cursor=pointer]:
+                - /url: /create
+          - generic [ref=e25]:
+            - generic [ref=e26]: Navigate
+            - list [ref=e28]:
+              - listitem [ref=e29]:
+                - link "Projects" [ref=e31] [cursor=pointer]:
+                  - /url: /projects
+              - listitem [ref=e36]:
+                - link "Workspace" [ref=e38] [cursor=pointer]:
+                  - /url: /workspace
+              - listitem [ref=e44]:
+                - link "Meetings" [ref=e46] [cursor=pointer]:
+                  - /url: /meetings
+              - listitem [ref=e50]:
+                - link "Team" [ref=e52] [cursor=pointer]:
+                  - /url: /team
+              - listitem [ref=e59]:
+                - link "Archive" [ref=e61] [cursor=pointer]:
+                  - /url: /archive
+        - button "Account" [ref=e97]:
+          - generic [ref=e98]: M
+          - generic [ref=e100]:
+            - generic [ref=e101]: Mengthong
+            - generic [ref=e102]: luyinfai@gmail.com
+      - button "Toggle Sidebar" [ref=e68]
+    - main [ref=e69]:
+      - generic [ref=e70]:
+        - button "Toggle Sidebar" [ref=e71]
+        - separator [ref=e73]
+        - button "Weshop Select a project" [ref=e106] [cursor=pointer]:
+          - generic [ref=e107]: Weshop
+          - generic [aria-hidden] [ref=e108]: /
+          - generic [ref=e110]: Select a project
+        - separator [ref=e75]
+        - generic [ref=e76]: Workspace
+        - generic [ref=e77]:
+          - button "Search and commands" [ref=e78] [cursor=pointer]:
+            - generic [ref=e79]: Search…
+            - generic [ref=e80]:
+              - generic: ⌘
+              - generic: K
+          - button "Notifications" [ref=e111]
+      - generic [ref=e82]:
+        - heading "Workspace" [level=1] [ref=e115]
+        - generic [ref=e117]:
+          - img "3D view of 1 projects, 0 tasks and 1 people. Drag to move around, Shift-drag or right-drag to turn, scroll or pinch to zoom, click something to focus it." [ref=e118]:
+            - generic:
+              - paragraph
+              - paragraph
+          - generic [ref=e120]:
+            - generic [ref=e121]:
+              - button "Hub" [pressed] [ref=e122]
+              - button "Flow" [ref=e125]
+              - button "Team" [ref=e127]
+            - button "Recentre the view" [ref=e129]
+            - button "Turn left" [ref=e133]
+            - button "Turn right" [ref=e137]
+            - button "Pause the animation" [ref=e141]
+            - generic [ref=e145]:
+              - button "Outline" [ref=e146]
+              - button "How the workspace works" [ref=e149]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e92] [cursor=pointer]
+  - alert [ref=e153]

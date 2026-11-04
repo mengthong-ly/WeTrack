@@ -1,10 +1,12 @@
 import "server-only"
 
-import { and, asc, countDistinct, desc, eq, gt, gte, ilike, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm"
+import { type AnyColumn, and, asc, countDistinct, desc, eq, gt, ilike, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { cache } from "react"
 
 import { CLIENT_KINDS, groupUpdates } from "@/lib/client-update"
 import { db } from "@/lib/db"
+import { TASK_STATUSES } from "@/lib/db/enums"
 import {
   activity,
   clientUpdate,
@@ -12,15 +14,18 @@ import {
   feedback,
   meeting,
   member,
+  notification,
   project,
   shareLink,
   task,
   user,
 } from "@/lib/db/schema"
 import type { FeedbackItem } from "@/components/feedback"
+import { plainText } from "@/lib/markdown"
+import { INBOX_PAGE, notificationHref, notificationVerb } from "@/lib/notifications"
 import { canJoin, formatSlot, joinUrl, type Viewer } from "@/lib/meetings"
-import type { FeedbackWho } from "@/lib/paging"
-import { monthRange, type TaskParams } from "@/lib/task-views"
+import type { FeedbackWho, MeetingParams, SortDir } from "@/lib/paging"
+import type { TaskParams } from "@/lib/task-views"
 import { ago, dateTime } from "@/lib/time"
 
 // The (app) layout and its pages both read projects and members: cache() runs each once per request.
@@ -30,6 +35,12 @@ export const listProjects = cache(async (orgId: string) =>
     where: and(eq(project.organizationId, orgId), eq(project.archived, false)),
     orderBy: asc(project.name),
   })
+)
+
+// One project in this workspace (archived ones too, so their links still open), or undefined. Cached per request:
+// the project layout, its switcher and the page all ask.
+export const getProject = cache(async (orgId: string, id: string) =>
+  db.query.project.findFirst({ where: and(eq(project.id, id), eq(project.organizationId, orgId)) })
 )
 
 export const listMembers = cache(async (orgId: string) =>
@@ -47,6 +58,17 @@ export function listArchivedProjects(orgId: string) {
     where: and(eq(project.organizationId, orgId), eq(project.archived, true)),
     orderBy: asc(project.name),
   })
+}
+
+// How many tasks each archived project holds, for the Archive page.
+export async function archivedTaskCounts(orgId: string) {
+  const rows = await db
+    .select({ projectId: task.projectId, n: sql<number>`count(*)::int` })
+    .from(task)
+    .innerJoin(project, eq(project.id, task.projectId))
+    .where(and(eq(task.organizationId, orgId), eq(project.archived, true)))
+    .groupBy(task.projectId)
+  return new Map(rows.map((r) => [r.projectId, r.n]))
 }
 
 const liveProjects = (orgId: string) =>
@@ -72,20 +94,20 @@ export function listTasks(orgId: string) {
 }
 export type TaskRow = Awaited<ReturnType<typeof listTasks>>[number]
 
-const WEEK_MS = 7 * 86_400_000
-const CALENDAR_MAX = 300
 const ACTIVE = ["in_progress", "review", "blocked"] as const
+// A column sort for orderBy. Relational queries rewrite every column in orderBy onto the root table, so a sort by a
+// related row's value is a subquery written as plain SQL (only the outer column is interpolated). The direction (only ever "asc" | "desc", from readSort), empty values last either way.
+const by = (expr: SQL | AnyColumn, dir: SortDir) => sql`${expr} ${sql.raw(dir)} nulls last`
 // `%term%` for ilike, with the user's own % _ \\ matched literally.
 const contains = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 
-// One page of the Tasks page (top-level tasks), filtered and ordered in the database. Order matches the Date view:
-// overdue, then by deadline, then undated, then work finished before today (newest first); the Completed tab goes
-// by when it was done. The board keeps done work from the last week; the calendar reads its month and undated work.
+// One page of the Tasks page (top-level tasks), filtered and ordered in the database. A ?sort= column orders by it;
+// otherwise the order matches the Date view: overdue, then by deadline, then undated, then work finished before
+// today (newest first), and the Completed tab goes by when it was done.
 // ponytail: offset paging, so a task added while you page can repeat (the client drops repeats by id). Keyset
 // paging on (rank, deadline, priority, id) if lists get busy enough for that to matter.
 export async function pageTasks(orgId: string, p: TaskParams, today: string, offset: number, limit: number) {
   const pattern = p.q && contains(p.q)
-  const [from, to] = monthRange(p.month ?? today.slice(0, 7))
   const where = and(
     eq(task.organizationId, orgId),
     inArray(task.projectId, liveProjects(orgId)),
@@ -99,16 +121,13 @@ export async function pageTasks(orgId: string, p: TaskParams, today: string, off
           inArray(task.assigneeId, db.select({ id: user.id }).from(user).where(ilike(user.name, pattern)))
         )
       : undefined,
-    p.view === "board"
-      ? or(ne(task.status, "completed"), gt(task.completedAt, new Date(Date.parse(today) - WEEK_MS)))
-      : p.status === "open"
-        ? ne(task.status, "completed")
-        : p.status === "active"
-          ? inArray(task.status, ACTIVE)
-          : p.status === "done"
-            ? eq(task.status, "completed")
-            : undefined,
-    p.view === "calendar" ? or(and(gte(task.deadline, from), lt(task.deadline, to)), isNull(task.deadline)) : undefined
+    p.status === "open"
+      ? ne(task.status, "completed")
+      : p.status === "active"
+        ? inArray(task.status, ACTIVE)
+        : p.status === "done"
+          ? eq(task.status, "completed")
+          : undefined
   )
   const [rows, total] = await Promise.all([
     db.query.task.findMany({
@@ -117,7 +136,21 @@ export async function pageTasks(orgId: string, p: TaskParams, today: string, off
       where,
       with: taskWith,
       orderBy: (t, { asc }) =>
-        p.status === "done" && p.view !== "board"
+        p.sort
+          ? [
+              by(
+                {
+                  title: sql`lower(${t.title})`,
+                  status: sql`case ${t.status} ${sql.join(TASK_STATUSES.map((x, i) => sql`when ${x} then ${i}`), sql` `)} end`,
+                  priority: sql`case ${t.priority} when 'urgent' then 0 when 'normal' then 1 else 2 end`,
+                  assignee: sql`(select lower(u.name) from "user" u where u.id = ${t.assigneeId})`,
+                  deadline: sql`${t.deadline}`,
+                }[p.sort],
+                p.dir
+              ),
+              asc(t.id),
+            ]
+          : p.status === "done"
           ? [sql`${t.completedAt} desc nulls last`, asc(t.id)]
           : [
               sql`case when ${t.deadline} is null then 2 when ${t.deadline} >= ${today} then 1 when ${t.status} = 'completed' then 3 else 0 end`,
@@ -126,9 +159,8 @@ export async function pageTasks(orgId: string, p: TaskParams, today: string, off
               sql`case ${t.priority} when 'urgent' then 0 when 'normal' then 1 else 2 end`,
               asc(t.id),
             ],
-      // ponytail: the calendar reads its whole month (and undated work) up to CALENDAR_MAX, no paging.
-      offset: p.view === "calendar" ? 0 : offset,
-      limit: p.view === "calendar" ? CALENDAR_MAX : limit,
+      offset,
+      limit,
     }),
     db.$count(task, where),
   ])
@@ -143,6 +175,7 @@ export function taskIndex(orgId: string) {
       id: task.id,
       title: task.title,
       status: task.status,
+      projectId: task.projectId,
       projectName: project.name,
       projectColor: project.color,
     })
@@ -221,10 +254,6 @@ export function recentActivity(orgId: string, limit = 8, actorId?: string) {
     .limit(limit)
 }
 
-export function getProject(orgId: string, id: string) {
-  return db.query.project.findFirst({ where: and(eq(project.organizationId, orgId), eq(project.id, id)) })
-}
-
 // Activity the client hasn't been told about yet, with the task's current state.
 export function unreportedActivity(orgId: string, projectId: string) {
   return db
@@ -296,30 +325,35 @@ export function activeShareLink(orgId: string) {
   })
 }
 
+const MEETING_COLUMNS = {
+  id: true,
+  title: true,
+  startsAt: true,
+  endsAt: true,
+  meetUrl: true,
+  calendarUrl: true,
+  canceledAt: true,
+  attendeeEmails: true,
+  createdById: true,
+} as const
+const MEETING_WITH = {
+  task: { columns: { id: true, title: true, projectId: true } },
+  createdBy: { columns: { id: true, name: true, image: true } },
+} as const
+const invitedOrCreated = (email: string, userId: string) =>
+  or(sql`${email.toLowerCase()} = any(${meeting.attendeeEmails})`, eq(meeting.createdById, userId))
+
 // Meetings that aren't cancelled and haven't ended, earliest first.
 function liveMeetings(orgId: string, filter?: SQL) {
   return db.query.meeting.findMany({
-    columns: {
-      id: true,
-      title: true,
-      startsAt: true,
-      endsAt: true,
-      meetUrl: true,
-      calendarUrl: true,
-      canceledAt: true,
-      attendeeEmails: true,
-      createdById: true,
-    },
+    columns: MEETING_COLUMNS,
     where: and(
       eq(meeting.organizationId, orgId),
       isNull(meeting.canceledAt),
       gt(meeting.endsAt, new Date()),
       filter
     ),
-    with: {
-      task: { columns: { id: true, title: true } },
-      createdBy: { columns: { id: true, name: true, image: true } },
-    },
+    with: MEETING_WITH,
     orderBy: asc(meeting.startsAt),
   })
 }
@@ -345,14 +379,50 @@ export function taskMeetings(orgId: string, taskId: string): Promise<MeetingRow[
   return liveMeetings(orgId, eq(meeting.taskId, taskId))
 }
 
+// A page of the Meetings table: upcoming (not ended, soonest first), past (ended, newest first) or cancelled
+// (newest first); `mine` keeps the ones the viewer is invited to or made, `q` matches the title.
+export async function meetingsPage(
+  orgId: string,
+  p: Pick<MeetingParams, "tab" | "mine" | "q" | "sort" | "dir">,
+  viewer: { email: string; userId: string },
+  offset: number,
+  limit: number
+) {
+  const now = new Date()
+  const where = and(
+    eq(meeting.organizationId, orgId),
+    p.tab === "cancelled" ? isNotNull(meeting.canceledAt) : isNull(meeting.canceledAt),
+    p.tab === "upcoming" ? gt(meeting.endsAt, now) : p.tab === "past" ? lt(meeting.endsAt, now) : undefined,
+    p.mine ? invitedOrCreated(viewer.email, viewer.userId) : undefined,
+    p.q ? ilike(meeting.title, contains(p.q)) : undefined
+  )
+  const [rows, total] = await Promise.all([
+    db.query.meeting.findMany({
+      columns: MEETING_COLUMNS,
+      where,
+      with: MEETING_WITH,
+      orderBy: p.sort
+        ? [by(p.sort === "title" ? sql`lower(${meeting.title})` : meeting.startsAt, p.dir), asc(meeting.id)]
+        : p.tab === "upcoming"
+          ? [asc(meeting.startsAt), asc(meeting.id)]
+          : [desc(meeting.startsAt), desc(meeting.id)],
+      offset,
+      limit,
+    }),
+    db.$count(meeting, where),
+  ])
+  return { rows, total }
+}
+
 /** What `MeetingList` renders. Built on the server so guest emails, the time zone and the Join rule stay here. */
 export type MeetingItem = {
   id: string
   title: string
   slot: string
   joinUrl: string | null
-  task: { id: string; title: string } | null
+  task: { id: string; title: string; projectId: string } | null
   people: { id: string; name: string; image: string | null }[]
+  organizer: { id: string; name: string; image: string | null } | null
   canCancel: boolean
 }
 
@@ -362,18 +432,23 @@ export function meetingItems(
   viewer: Viewer
 ): MeetingItem[] {
   const tz = process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh"
-  return rows.map((m) => ({
+  const now = Date.now()
+  return rows.map((m) => {
+    const live = !m.canceledAt && m.endsAt.getTime() > now
+    return {
     id: m.id,
     title: m.title,
     slot: formatSlot(m, tz),
-    joinUrl: canJoin(m, viewer) ? joinUrl(m) : null,
+    joinUrl: live && canJoin(m, viewer) ? joinUrl(m) : null,
     task: m.task,
     people: members
       .filter((p) => p.id === m.createdById || m.attendeeEmails.includes(p.email.toLowerCase()))
       .map(({ id, name, image }) => ({ id, name, image })),
-    // Same rule as cancelMeeting; the server re-checks.
-    canCancel: viewer !== "share" && (m.createdById === viewer.userId || viewer.role !== "member"),
-  }))
+    organizer: m.createdBy,
+    // Same rule as cancelMeeting; the server re-checks. Only a meeting still to come can be cancelled.
+    canCancel: live && viewer !== "share" && (m.createdById === viewer.userId || viewer.role !== "member"),
+  }
+  })
 }
 
 /** Dates as ISO strings for the client `MeetingBanner`. */
@@ -393,7 +468,7 @@ export function bannerMeetings(rows: MeetingRow[], viewer: Viewer) {
 type Me = { orgId: string; role: string; user: { id: string } }
 
 // What's left to fix on each Feedback tab. Cached per request: the page reads it to pick its first tab.
-export const openFeedback = cache(async (orgId: string, userId: string) => {
+export const openFeedback = cache(async (orgId: string, userId: string, projectId: string) => {
   const [open] = await db
     .select({
       mine: sql<number>`count(*) filter (where ${feedback.recipientId} = ${userId})`.mapWith(Number),
@@ -401,14 +476,23 @@ export const openFeedback = cache(async (orgId: string, userId: string) => {
       all: sql<number>`count(*)`.mapWith(Number),
     })
     .from(feedback)
-    .where(and(eq(feedback.organizationId, orgId), isNull(feedback.resolvedAt)))
+    .where(and(eq(feedback.organizationId, orgId), eq(feedback.projectId, projectId), isNull(feedback.resolvedAt)))
   return open as Record<FeedbackWho, number>
 })
 
 // A page of feedback (never the screenshot bytes), newest first: for me, from me or everyone, open or fixed.
-export async function feedbackPage(me: Me, who: FeedbackWho, fixed: boolean, offset: number, limit: number) {
+export async function feedbackPage(
+  me: Me,
+  projectId: string,
+  who: FeedbackWho,
+  fixed: boolean,
+  offset: number,
+  limit: number,
+  sort: { sort: "task" | "for" | "from" | "given" | null; dir: SortDir } = { sort: null, dir: "asc" }
+) {
   const where = and(
     eq(feedback.organizationId, me.orgId),
+    eq(feedback.projectId, projectId),
     who === "mine" ? eq(feedback.recipientId, me.user.id) : who === "given" ? eq(feedback.authorId, me.user.id) : undefined,
     fixed ? isNotNull(feedback.resolvedAt) : isNull(feedback.resolvedAt)
   )
@@ -416,12 +500,25 @@ export async function feedbackPage(me: Me, who: FeedbackWho, fixed: boolean, off
     db.query.feedback.findMany({
       where,
       with: FEEDBACK_WITH,
-      orderBy: [desc(feedback.createdAt), desc(feedback.id)],
+      orderBy: sort.sort
+        ? [
+            by(
+              {
+                task: sql`(select lower(t.title) from task t where t.id = ${feedback.taskId})`,
+                for: sql`(select lower(u.name) from "user" u where u.id = ${feedback.recipientId})`,
+                from: sql`(select lower(u.name) from "user" u where u.id = ${feedback.authorId})`,
+                given: feedback.createdAt,
+              }[sort.sort],
+              sort.dir
+            ),
+            desc(feedback.id),
+          ]
+        : [desc(feedback.createdAt), desc(feedback.id)],
       offset,
       limit,
     }),
     db.$count(feedback, where),
-    openFeedback(me.orgId, me.user.id),
+    openFeedback(me.orgId, me.user.id, projectId),
   ])
   return { rows: rows.map((f) => toFeedbackItem(me, f)), total, open }
 }
@@ -452,6 +549,7 @@ function toFeedbackItem(
 ): FeedbackItem {
   return {
     id: f.id,
+    projectId: f.projectId,
     body: f.body,
     imageId: f.imageId,
     resolved: !!f.resolvedAt,
@@ -473,4 +571,69 @@ export async function loadClientUpdates(orgId: string, projectId: string) {
     events.map((e) => ({ id: e.taskId!, title: e.title, status: e.status, deadline: e.deadline }))
   )
   return { project, items, history }
+}
+
+export type InboxItem = {
+  id: string
+  actor: { name: string; image: string | null } | null
+  verb: string
+  subject: string | null
+  /** A comment's first words, or a meeting's time. */
+  preview: string | null
+  href: string
+  ago: string
+  /** ISO time: the cursor for "Show older". */
+  at: string
+  unread: boolean
+}
+
+export type InboxPage = { items: InboxItem[]; unread: number; hasMore: boolean }
+
+const text = (v: unknown) => (typeof v === "string" && v ? v : null)
+
+// One page of this person's inbox, newest first (`before` = the last item's `at` for the next page), and how many
+// they haven't seen. Read by the bell (layout), its poll and "Show older" (/api/notifications).
+export async function inbox(userId: string, before?: Date): Promise<InboxPage> {
+  const actor = alias(user, "actor")
+  const [rows, [{ unread }]] = await Promise.all([
+    db
+      .select({
+        id: notification.id,
+        kind: notification.kind,
+        data: notification.data,
+        taskId: notification.taskId,
+        feedbackId: notification.feedbackId,
+        readAt: notification.readAt,
+        createdAt: notification.createdAt,
+        actorName: actor.name,
+        actorImage: actor.image,
+        taskTitle: task.title,
+        feedbackBody: feedback.body,
+      })
+      .from(notification)
+      .leftJoin(actor, eq(actor.id, notification.actorId))
+      .leftJoin(task, eq(task.id, notification.taskId))
+      .leftJoin(feedback, eq(feedback.id, notification.feedbackId))
+      .where(and(eq(notification.recipientId, userId), before ? lt(notification.createdAt, before) : undefined))
+      .orderBy(desc(notification.createdAt))
+      .limit(INBOX_PAGE + 1),
+    db
+      .select({ unread: sql<number>`count(*)::int` })
+      .from(notification)
+      .where(and(eq(notification.recipientId, userId), isNull(notification.readAt))),
+  ])
+  const now = new Date()
+  const items: InboxItem[] = rows.slice(0, INBOX_PAGE).map((r) => ({
+    id: r.id,
+    actor: r.actorName ? { name: r.actorName, image: r.actorImage } : null,
+    verb: notificationVerb(r.kind, r.data),
+    // A meeting names itself; otherwise the task, or the feedback's first words.
+    subject: text(r.data?.subject) ?? r.taskTitle ?? (r.feedbackBody ? plainText(r.feedbackBody).slice(0, 140) || null : null),
+    preview: text(r.data?.preview),
+    href: notificationHref(r),
+    ago: ago(r.createdAt, now),
+    at: r.createdAt.toISOString(),
+    unread: !r.readAt,
+  }))
+  return { items, unread, hasMore: rows.length > INBOX_PAGE }
 }

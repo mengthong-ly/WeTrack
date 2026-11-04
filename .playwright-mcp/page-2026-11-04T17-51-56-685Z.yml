@@ -1,0 +1,50 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - generic [ref=f4e6]:
+      - generic [ref=f4e7]:
+        - list [ref=f4e9]:
+          - listitem [ref=f4e10]:
+            - link "w. WeTrack" [ref=f4e12] [cursor=pointer]:
+              - /url: /projects
+              - generic [ref=f4e13]: w.
+              - generic [ref=f4e14]: WeTrack
+        - generic [ref=f4e16]:
+          - list [ref=f4e18]:
+            - listitem [ref=f4e19]:
+              - link "New project" [ref=f4e21] [cursor=pointer]:
+                - /url: /create
+          - generic [ref=f4e24]:
+            - generic [ref=f4e25]: Navigate
+            - list [ref=f4e27]:
+              - listitem [ref=f4e28]:
+                - link "Projects" [ref=f4e30] [cursor=pointer]:
+                  - /url: /projects
+              - listitem [ref=f4e35]:
+                - link "Workspace" [ref=f4e37] [cursor=pointer]:
+                  - /url: /workspace
+              - listitem [ref=f4e43]:
+                - link "Meetings" [ref=f4e45] [cursor=pointer]:
+                  - /url: /meetings
+              - listitem [ref=f4e49]:
+                - link "Team" [ref=f4e51] [cursor=pointer]:
+                  - /url: /team
+              - listitem [ref=f4e58]:
+                - link "Archive" [ref=f4e60] [cursor=pointer]:
+                  - /url: /archive
+      - button "Toggle Sidebar" [ref=f4e67]
+    - main [ref=f4e68]:
+      - generic [ref=f4e69]:
+        - button "Toggle Sidebar" [ref=f4e70]
+        - separator [ref=f4e72]
+        - separator [ref=f4e74]
+        - generic [ref=f4e75]: Workspace
+        - button "Search and commands" [ref=f4e77] [cursor=pointer]:
+          - generic [ref=f4e78]: Search…
+          - generic [ref=f4e79]:
+            - generic: ⌘
+            - generic: K
+      - status [ref=f4e82]:
+        - paragraph [ref=f4e85]: Setting up your workspace
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=f4e91] [cursor=pointer]
+  - alert [ref=f4e95]

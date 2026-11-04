@@ -1,0 +1,41 @@
+[      44ms] [LOG] [Fast Refresh] done in 362ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[     316ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[     349ms] [LOG] [HMR] connected @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[    1500ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[    1902ms] [LOG] [Fast Refresh] done in 502ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   11853ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   13886ms] [WARNING] [Fast Refresh] performing full reload
+
+Fast Refresh will perform a full reload when you edit a file that's imported by modules outside of the React rendering tree.
+You might have a file which exports a React component but also exports a value that is imported by a non-React component file.
+Consider migrating the non-React component export to a separate file and importing it into both files.
+
+It is also possible the parent component of the component you edited is a class component, which disables Fast Refresh.
+Fast Refresh requires at least one parent function component in your React tree. @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   14491ms] [LOG] [Fast Refresh] done in 2660ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   14543ms] [LOG] [Fast Refresh] done in 2660ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   14633ms] [LOG] [Fast Refresh] done in 2660ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   14633ms] [LOG] [Fast Refresh] done in 2660ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   15307ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   15329ms] [LOG] [HMR] connected @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   25623ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   25704ms] [WARNING] [Fast Refresh] performing full reload
+
+Fast Refresh will perform a full reload when you edit a file that's imported by modules outside of the React rendering tree.
+You might have a file which exports a React component but also exports a value that is imported by a non-React component file.
+Consider migrating the non-React component export to a separate file and importing it into both files.
+
+It is also possible the parent component of the component you edited is a class component, which disables Fast Refresh.
+Fast Refresh requires at least one parent function component in your React tree. @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   25735ms] [LOG] [Fast Refresh] done in 209ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   25794ms] [LOG] [Fast Refresh] done in 209ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   25997ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   26166ms] [LOG] [Fast Refresh] done in 270ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   26575ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   26638ms] [LOG] [HMR] connected @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   31241ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   32073ms] [LOG] [Fast Refresh] done in 932ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   32863ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   33356ms] [LOG] [Fast Refresh] done in 594ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   40050ms] [LOG] [Fast Refresh] rebuilding @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719
+[   40552ms] [LOG] [Fast Refresh] done in 604ms @ http://localhost:3100/_next/static/chunks/0dkg_next_dist_0xq5dbseafyx2._.js:719

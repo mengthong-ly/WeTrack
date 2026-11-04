@@ -8,6 +8,7 @@ import { ProjectDot, StatusText, UserAvatar } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
 import type { TaskCardData } from "@/components/task-card"
 import { formatDate, HEALTH } from "@/lib/labels"
+import { taskHref } from "@/lib/routes"
 import { cn } from "@/lib/utils"
 
 export type GridTask = TaskCardData & { body: string | null }
@@ -39,7 +40,7 @@ function DocCard({ task, index }: { task: GridTask; index: number }) {
       transition={{ ...spring, delay: Math.min(index, 8) * 0.035 }}
     >
       <Link
-        href={`/tasks/${task.id}`}
+        href={taskHref(task.projectId, task.id)}
         className="group flex h-80 flex-col rounded-tile bg-card p-5 shadow-sm ring-1 ring-foreground/5 outline-none transition-[box-shadow,scale] hover:shadow-md focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-99"
       >
         <h3 className={cn("line-clamp-2 text-lg leading-snug", done && "text-muted-foreground line-through decoration-foreground/30")}>

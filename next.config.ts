@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   // Feedback screenshots go through a server action: several shrunk images per send.
   experimental: { agentUpgrade: "security", serverActions: { bodySizeLimit: "20mb" } },
+  // The push service worker must never be served stale, or a fix to it waits for the browser's HTTP cache.
+  async headers() {
+    return [{ source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] }]
+  },
 }
 
 export default nextConfig
