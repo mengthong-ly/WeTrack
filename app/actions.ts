@@ -19,9 +19,13 @@ import {
   member,
   notification,
   project,
+  PROJECT_LINK_KINDS,
+  projectLink,
   pushSubscription,
   shareLink,
   task,
+  taskAssignee,
+  taskView,
   TASK_PRIORITIES,
   TASK_STATUSES,
   TASK_TYPES,
@@ -39,10 +43,14 @@ import {
   slackCancelled,
   slackMeetingCard,
 } from "@/lib/meetings"
+import { normalizeLink } from "@/lib/link"
 import { plainText } from "@/lib/markdown"
 import { isPushEndpoint } from "@/lib/notifications"
 import { notify } from "@/lib/notify"
+import { listSubtasks } from "@/lib/queries"
+import { todayISO } from "@/lib/schedule"
 import { getSession, requireMember } from "@/lib/session"
+import { toBrowserTask } from "@/lib/task-view"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { deleteImage, isImage, saveImage } from "@/lib/storage"
 import { attachmentSrc } from "@/lib/utils"
@@ -238,6 +246,30 @@ const projectInput = z.object({
   color: z.string().regex(/^#[0-9a-f]{6}$/i),
 })
 
+// A project's named links (staging, production, a Figma file …), saved with the project: the list sent replaces the one stored.
+const linkInput = z.object({
+  kind: z.enum(PROJECT_LINK_KINDS),
+  title: z.string().trim().min(1, "Give each link a title.").max(80),
+  url: z
+    .string()
+    .transform((u, ctx) => normalizeLink(u) ?? (ctx.addIssue({ code: "custom", message: "That link isn't a web address." }), z.NEVER)),
+})
+const parseJson = (v: FormDataEntryValue | null): unknown => {
+  try {
+    return JSON.parse(String(v || "[]"))
+  } catch {
+    return null
+  }
+}
+const linksInput = z.array(linkInput).max(30, "A project holds up to 30 links.")
+
+async function replaceLinks(orgId: string, projectId: string, links: z.output<typeof linksInput>) {
+  await db.transaction(async (tx) => {
+    await tx.delete(projectLink).where(eq(projectLink.projectId, projectId))
+    if (links.length) await tx.insert(projectLink).values(links.map((l, i) => ({ ...l, organizationId: orgId, projectId, createdAt: new Date(Date.now() + i) })))
+  })
+}
+
 // From the /create page: name, colour, an optional description and an optional logo image, as form data.
 export async function createProject(form: FormData): Promise<Result & { id?: string }> {
   const me = await requireMember()
@@ -245,6 +277,8 @@ export async function createProject(form: FormData): Promise<Result & { id?: str
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const description = projectDescription.safeParse(form.get("description") ?? "")
   if (!description.success) return { error: description.error.issues[0].message }
+  const links = linksInput.safeParse(parseJson(form.get("links")))
+  if (!links.success) return { error: links.error.issues[0].message }
   const logo = form.get("logo")
   const file = isImage(logo) ? logo : null
   if (logo instanceof File && logo.size && !file) return { error: "Logos must be images under 4 MB." }
@@ -253,13 +287,14 @@ export async function createProject(form: FormData): Promise<Result & { id?: str
     .insert(project)
     .values({ organizationId: me.orgId, ...parsed.data, description: description.data, logoId })
     .returning({ id: project.id })
+  await replaceLinks(me.orgId, row.id, links.data)
   await audit(me, "project.create", { projectId: row.id, targetId: row.id, label: parsed.data.name })
   refresh()
   return { id: row.id }
 }
 
 // Rename or recolour; either field may be left out.
-const projectPatch = projectInput.partial().extend({ description: projectDescription.optional() })
+const projectPatch = projectInput.partial().extend({ description: projectDescription.optional(), links: linksInput.optional() })
 
 export async function updateProject(projectId: string, patch: z.input<typeof projectPatch>): Promise<Result> {
   const me = await requireMember()
@@ -267,9 +302,11 @@ export async function updateProject(projectId: string, patch: z.input<typeof pro
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const p = await ownProject(me.orgId, projectId)
   if (!p) return { error: "Project not found." }
-  if (!Object.keys(parsed.data).length) return {}
-  await db.update(project).set(parsed.data).where(eq(project.id, projectId))
-  await audit(me, "project.update", { projectId, targetId: projectId, label: parsed.data.name ?? p.name, data: { changed: Object.keys(parsed.data) } })
+  const { links, ...fields } = parsed.data
+  if (!Object.keys(fields).length && !links) return {}
+  if (Object.keys(fields).length) await db.update(project).set(fields).where(eq(project.id, projectId))
+  if (links) await replaceLinks(me.orgId, projectId, links)
+  await audit(me, "project.update", { projectId, targetId: projectId, label: fields.name ?? p.name, data: { changed: Object.keys(parsed.data) } })
   refresh()
   return {}
 }
@@ -324,11 +361,37 @@ export async function deleteProject(projectId: string): Promise<Result> {
 
 // ---------- Tasks ----------
 
+// "Seen": when someone last opened a task. Home lists the tasks that changed after that. A person's own edits count as
+// opening, so they never show up as news to themselves.
+async function touchSeen(userId: string, taskIds: string[]) {
+  if (!taskIds.length) return
+  await db
+    .insert(taskView)
+    .values(taskIds.map((taskId) => ({ taskId, userId })))
+    .onConflictDoUpdate({ target: [taskView.taskId, taskView.userId], set: { viewedAt: new Date() } })
+}
+
+// Opening a task page.
+export async function markTaskSeen(taskId: string): Promise<void> {
+  const me = await requireMember()
+  if (await ownTask(me.orgId, taskId)) await touchSeen(me.user.id, [taskId])
+}
+
+// "Mark seen" on Home, one task or all listed.
+export async function markTasksSeen(taskIds: string[]): Promise<void> {
+  const me = await requireMember()
+  const own = await db.select({ id: task.id }).from(task).where(and(eq(task.organizationId, me.orgId), inArray(task.id, taskIds.slice(0, 200))))
+  await touchSeen(me.user.id, own.map((t) => t.id))
+  revalidatePath("/")
+}
+
 const taskFields = z.object({
   title: z.string().trim().min(1, "Give the task a title.").max(200),
   description: optionalText,
   projectId: z.string().min(1, "Pick a project."),
+  /** The lead assignee alone (the 3D workspace, quick capture); `assigneeIds` is everyone, and wins when both are sent. */
   assigneeId: z.string().nullable(),
+  assigneeIds: z.array(z.string()).max(20).optional(),
   type: z.enum(TASK_TYPES),
   priority: z.enum(TASK_PRIORITIES),
   status: z.enum(TASK_STATUSES),
@@ -338,6 +401,24 @@ const taskFields = z.object({
   /** A sub-task: it goes in its parent's project. */
   parentId: z.string().nullish(),
 })
+
+// Who a task goes to, from whichever of `assigneeIds` / `assigneeId` was sent (undefined: leave as is). The first is the
+// lead and also lands in task.assigneeId.
+async function resolveAssignees(orgId: string, d: { assigneeId?: string | null; assigneeIds?: string[] }): Promise<{ ids?: string[]; error?: string }> {
+  const ids = d.assigneeIds ? [...new Set(d.assigneeIds)] : d.assigneeId === undefined ? undefined : d.assigneeId ? [d.assigneeId] : []
+  if (ids?.length) {
+    const found = await db.$count(member, and(eq(member.organizationId, orgId), inArray(member.userId, ids)))
+    if (found !== ids.length) return { error: "Assignee isn't in this workspace." }
+  }
+  return { ids }
+}
+
+async function setTaskAssignees(taskId: string, ids: string[]) {
+  await db.transaction(async (tx) => {
+    await tx.delete(taskAssignee).where(eq(taskAssignee.taskId, taskId))
+    if (ids.length) await tx.insert(taskAssignee).values(ids.map((userId) => ({ taskId, userId })))
+  })
+}
 
 export async function createTask(
   input: z.input<typeof taskFields>
@@ -352,20 +433,25 @@ export async function createTask(
     data.projectId = parent.projectId
   }
   if (!(await ownProject(me.orgId, data.projectId))) return { error: "Project not found." }
-  if (data.assigneeId && !(await isMember(me.orgId, data.assigneeId)))
-    return { error: "Assignee isn't in this workspace." }
+  const who = await resolveAssignees(me.orgId, data)
+  if (who.error) return { error: who.error }
+  const { assigneeIds: _ignored, ...fields } = data
+  const assignees = who.ids ?? []
 
   const [row] = await db
     .insert(task)
     .values({
-      ...data,
+      ...fields,
+      assigneeId: assignees[0] ?? null,
       organizationId: me.orgId,
       createdById: me.user.id,
       completedAt: data.status === "completed" ? new Date() : null,
     })
     .returning({ id: task.id })
+  await setTaskAssignees(row.id, assignees)
+  await touchSeen(me.user.id, [row.id])
   await log(me.orgId, me.user.id, "task_created", { projectId: data.projectId, taskId: row.id })
-  await notify({ orgId: me.orgId, actor: me.user, kind: "assigned", to: [data.assigneeId], subject: data.title, taskId: row.id })
+  await notify({ orgId: me.orgId, actor: me.user, kind: "assigned", to: assignees, subject: data.title, taskId: row.id })
   await audit(me, "task.create", { projectId: data.projectId, targetId: row.id, label: data.title })
   refresh()
   return { id: row.id }
@@ -381,8 +467,10 @@ export async function updateTask(taskId: string, patch: z.input<typeof taskPatch
   const before = await ownTask(me.orgId, taskId)
   if (!before) return { error: "Task not found." }
   if (data.projectId && !(await ownProject(me.orgId, data.projectId))) return { error: "Project not found." }
-  if (data.assigneeId && !(await isMember(me.orgId, data.assigneeId)))
-    return { error: "Assignee isn't in this workspace." }
+  const who = await resolveAssignees(me.orgId, data)
+  if (who.error) return { error: who.error }
+  const { assigneeIds: _ignored, ...fields } = data
+  const assignedBefore = (await db.select({ id: taskAssignee.userId }).from(taskAssignee).where(eq(taskAssignee.taskId, taskId))).map((r) => r.id)
 
   const completedAt =
     data.status === undefined || data.status === before.status
@@ -392,8 +480,10 @@ export async function updateTask(taskId: string, patch: z.input<typeof taskPatch
         : null
   await db
     .update(task)
-    .set({ ...data, ...(completedAt !== undefined && { completedAt }) })
+    .set({ ...fields, ...(who.ids && { assigneeId: who.ids[0] ?? null }), ...(completedAt !== undefined && { completedAt }) })
     .where(eq(task.id, taskId))
+  if (who.ids) await setTaskAssignees(taskId, who.ids)
+  await touchSeen(me.user.id, [taskId])
 
   // Feedback on a task lives in the task's project, so it moves with it.
   if (data.projectId && data.projectId !== before.projectId)
@@ -415,10 +505,10 @@ export async function updateTask(taskId: string, patch: z.input<typeof taskPatch
 
   // The new assignee hears they have it; whoever owns or made the task hears it moved.
   const notice = { orgId: me.orgId, actor: me.user, subject: data.title ?? before.title, taskId }
-  const assigneeId = data.assigneeId !== undefined ? data.assigneeId : before.assigneeId
-  const watchers = [assigneeId, before.createdById]
-  if (data.assigneeId && data.assigneeId !== before.assigneeId)
-    await notify({ ...notice, kind: "assigned", to: [data.assigneeId] })
+  const assignedNow = who.ids ?? assignedBefore
+  const watchers = [...assignedNow, before.createdById]
+  const added = assignedNow.filter((id) => !assignedBefore.includes(id))
+  if (added.length) await notify({ ...notice, kind: "assigned", to: added })
   if (data.status && data.status !== before.status)
     await notify({
       ...notice,
@@ -445,6 +535,15 @@ export async function deleteTask(taskId: string): Promise<Result> {
 
 // ---------- Sub-tasks & comments ----------
 
+// A task's direct sub-tasks as table rows, for the Tasks table's expand arrow. Each carries its own sub-task count, so a
+// row with children of its own expands in turn.
+export async function loadSubtasks(parentId: string) {
+  const me = await requireMember()
+  const today = todayISO()
+  const rows = await listSubtasks(me.orgId, parentId)
+  return rows.map((t) => toBrowserTask({ ...t, body: null }, today))
+}
+
 // Quick add from the parent's page: a full task under it, in its project, not started. Ticking and
 // deleting a sub-task use updateTask and deleteTask like any task.
 export async function addSubtask(parentId: string, title: string): Promise<Result & { id?: string }> {
@@ -463,6 +562,7 @@ export async function addSubtask(parentId: string, title: string): Promise<Resul
       title: parsed.data,
     })
     .returning({ id: task.id })
+  await touchSeen(me.user.id, [row.id, parentId])
   await log(me.orgId, me.user.id, "task_created", { projectId: parent.projectId, taskId: row.id })
   await audit(me, "task.create", { projectId: parent.projectId, targetId: row.id, label: parsed.data, data: { parentId } })
   refresh()
@@ -476,13 +576,15 @@ export async function addComment(taskId: string, body: string): Promise<Result> 
   const t = await ownTask(me.orgId, taskId)
   if (!t) return { error: "Task not found." }
   await db.insert(comment).values({ taskId, authorId: me.user.id, body: parsed.data })
+  await touchSeen(me.user.id, [taskId])
   // The assignee, the creator and everyone already in the thread.
   const thread = await db.selectDistinct({ id: comment.authorId }).from(comment).where(eq(comment.taskId, taskId))
+  const assigned = await db.select({ id: taskAssignee.userId }).from(taskAssignee).where(eq(taskAssignee.taskId, taskId))
   await notify({
     orgId: me.orgId,
     actor: me.user,
     kind: "commented",
-    to: [t.assigneeId, t.createdById, ...thread.map((c) => c.id)],
+    to: [...assigned.map((a) => a.id), t.createdById, ...thread.map((c) => c.id)],
     subject: t.title,
     taskId,
     data: { preview: plainText(parsed.data).slice(0, 140) },

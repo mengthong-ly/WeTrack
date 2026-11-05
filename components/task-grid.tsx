@@ -4,7 +4,7 @@ import { CalendarIcon, ListTreeIcon } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import Link from "next/link"
 
-import { ProjectDot, StatusText, UserAvatar } from "@/components/bits"
+import { AvatarStack, ProjectDot, StatusText } from "@/components/bits"
 import { spring } from "@/components/motion-bits"
 import type { TaskCardData } from "@/components/task-card"
 import { formatDate, HEALTH } from "@/lib/labels"
@@ -67,7 +67,7 @@ function DocCard({ task, index }: { task: GridTask; index: number }) {
                 {formatDate(task.deadline)}
               </span>
             )}
-            <UserAvatar user={task.assignee} className="size-6 ring-0" />
+            <AvatarStack users={task.assignees} />
           </span>
         </div>
       </Link>

@@ -34,7 +34,7 @@ export function Frame({ sidebar, projectId, children }: { sidebar: React.ReactNo
             </Suspense>
           }
         />
-        <div className="max-w-6xl mx-auto px-4 py-6 sm:px-8 sm:py-16">
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-16">
           <div className="relative z-10">
             <Suspense>
               <Banner />

@@ -9,7 +9,7 @@ import {
   isoDay,
   projectHealth,
 } from "@/lib/schedule"
-import { byDeadline } from "@/lib/task-view"
+import { assignedTo, byDeadline } from "@/lib/task-view"
 
 export const ACTIVE: TaskStatus[] = ["in_progress", "review", "blocked"]
 
@@ -65,11 +65,11 @@ export function projectProgress<P extends { id: string; name: string; color: str
 // Per-person load, for the Team page and the CEO view.
 export function workload<M extends { id: string }>(
   members: M[],
-  tasks: (Countable & { assigneeId: string | null })[],
+  tasks: (Countable & { assignees: { userId: string }[] })[],
   today: string
 ) {
   return members.map((m) => {
-    const mine = tasks.filter((t) => t.assigneeId === m.id)
+    const mine = tasks.filter((t) => assignedTo(t, m.id))
     const open = mine.filter((t) => t.status !== "completed")
     return {
       member: m,

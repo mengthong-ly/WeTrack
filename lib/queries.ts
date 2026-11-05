@@ -16,9 +16,13 @@ import {
   member,
   notification,
   project,
+  projectLink,
   shareLink,
   task,
+  taskAssignee,
+  taskView,
   user,
+  userLogin,
 } from "@/lib/db/schema"
 import type { FeedbackItem } from "@/components/feedback"
 import { plainText } from "@/lib/markdown"
@@ -41,6 +45,15 @@ export const listProjects = cache(async (orgId: string) =>
 // the project layout, its switcher and the page all ask.
 export const getProject = cache(async (orgId: string, id: string) =>
   db.query.project.findFirst({ where: and(eq(project.id, id), eq(project.organizationId, orgId)) })
+)
+
+// A project's named links, in the order they were added.
+export const listProjectLinks = cache(async (orgId: string, projectId: string) =>
+  db
+    .select({ id: projectLink.id, kind: projectLink.kind, title: projectLink.title, url: projectLink.url })
+    .from(projectLink)
+    .where(and(eq(projectLink.organizationId, orgId), eq(projectLink.projectId, projectId)))
+    .orderBy(asc(projectLink.createdAt), asc(projectLink.id))
 )
 
 export const listMembers = cache(async (orgId: string) =>
@@ -77,6 +90,7 @@ const liveProjects = (orgId: string) =>
 const taskWith = {
   project: { columns: { id: true, name: true, color: true } },
   assignee: { columns: { id: true, name: true, image: true } },
+  assignees: { columns: { userId: true }, with: { user: { columns: { id: true, name: true, image: true } } } },
   release: true,
   subtasks: { columns: { status: true } },
 } as const
@@ -113,12 +127,19 @@ export async function pageTasks(orgId: string, p: TaskParams, today: string, off
     inArray(task.projectId, liveProjects(orgId)),
     isNull(task.parentId),
     p.projectId ? eq(task.projectId, p.projectId) : undefined,
-    p.person ? eq(task.assigneeId, p.person) : undefined,
+    p.person ? inArray(task.id, db.select({ id: taskAssignee.taskId }).from(taskAssignee).where(eq(taskAssignee.userId, p.person))) : undefined,
     pattern
       ? or(
           ilike(task.title, pattern),
           inArray(task.projectId, db.select({ id: project.id }).from(project).where(ilike(project.name, pattern))),
-          inArray(task.assigneeId, db.select({ id: user.id }).from(user).where(ilike(user.name, pattern)))
+          inArray(
+            task.id,
+            db
+              .select({ id: taskAssignee.taskId })
+              .from(taskAssignee)
+              .innerJoin(user, eq(user.id, taskAssignee.userId))
+              .where(ilike(user.name, pattern))
+          )
         )
       : undefined,
     p.status === "open"
@@ -168,6 +189,60 @@ export async function pageTasks(orgId: string, p: TaskParams, today: string, off
 }
 export type PagedTaskRow = Awaited<ReturnType<typeof pageTasks>>["rows"][number]
 
+// The direct children of a task, oldest first, shaped like the Tasks page's rows (the table opens a parent in place).
+export function listSubtasks(orgId: string, parentId: string) {
+  return db.query.task.findMany({
+    columns: { description: false },
+    where: and(eq(task.organizationId, orgId), eq(task.parentId, parentId)),
+    with: taskWith,
+    orderBy: [asc(task.createdAt), asc(task.id)],
+  })
+}
+
+// Open tasks that are yours (assigned to you or made by you) and changed, or got a comment, after you last opened them,
+// or you never have. Your own edits count as opening (touchSeen), so only other people's changes show here.
+export async function unseenTasks(orgId: string, userId: string, limit = 8) {
+  const changedAt = sql<Date>`greatest(${task.updatedAt}, coalesce((select max(c.created_at) from comment c where c.task_id = ${task.id}), ${task.updatedAt}))`
+  const where = and(
+    eq(task.organizationId, orgId),
+    inArray(task.projectId, liveProjects(orgId)),
+    ne(task.status, "completed"),
+    or(eq(task.createdById, userId), inArray(task.id, db.select({ id: taskAssignee.taskId }).from(taskAssignee).where(eq(taskAssignee.userId, userId)))),
+    or(isNull(taskView.viewedAt), sql`${changedAt} > ${taskView.viewedAt}`)
+  )
+  const from = () =>
+    db
+      .select({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        projectId: task.projectId,
+        projectName: project.name,
+        projectColor: project.color,
+        changedAt,
+        viewedAt: taskView.viewedAt,
+      })
+      .from(task)
+      .innerJoin(project, eq(project.id, task.projectId))
+      .leftJoin(taskView, and(eq(taskView.taskId, task.id), eq(taskView.userId, userId)))
+      .where(where)
+  const [rows, [{ n }]] = await Promise.all([
+    from().orderBy(desc(changedAt)).limit(limit),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(task)
+      .leftJoin(taskView, and(eq(taskView.taskId, task.id), eq(taskView.userId, userId)))
+      .where(where),
+  ])
+  return { rows, total: n }
+}
+
+// The sign-in before this one, for Home ("last login"); null on a first visit.
+export async function previousLogin(userId: string) {
+  const [row] = await db.select({ at: userLogin.previousAt }).from(userLogin).where(eq(userLogin.userId, userId))
+  return row?.at ?? null
+}
+
 // Just enough to find a task by name from the command menu.
 export function taskIndex(orgId: string) {
   return db
@@ -193,12 +268,17 @@ export const getTask = cache(async (orgId: string, id: string) =>
     with: {
       project: true,
       assignee: { columns: { id: true, name: true, image: true } },
+      assignees: { columns: { userId: true }, with: { user: { columns: { id: true, name: true, image: true } } } },
       release: true,
       parent: { columns: { id: true, title: true } },
       subtasks: {
         orderBy: asc(task.createdAt),
-        columns: { id: true, title: true, status: true, priority: true, deadline: true },
-        with: { assignee: { columns: { id: true, name: true, image: true } }, subtasks: { columns: { id: true } } },
+        columns: { id: true, title: true, status: true, priority: true, deadline: true, assigneeId: true },
+        with: {
+          assignee: { columns: { id: true, name: true, image: true } },
+          assignees: { columns: { userId: true }, with: { user: { columns: { id: true, name: true, image: true } } } },
+          subtasks: { columns: { id: true } },
+        },
       },
     },
   })
@@ -232,7 +312,7 @@ export function taskTree(orgId: string) {
     .orderBy(asc(task.createdAt))
 }
 
-export function recentActivity(orgId: string, limit = 8, actorId?: string) {
+export function recentActivity(orgId: string, limit = 8, actorId?: string, offset = 0) {
   return db
     .select({
       id: activity.id,
@@ -240,6 +320,7 @@ export function recentActivity(orgId: string, limit = 8, actorId?: string) {
       data: activity.data,
       createdAt: activity.createdAt,
       taskId: activity.taskId,
+      projectId: activity.projectId,
       taskTitle: task.title,
       actorId: activity.actorId,
       actor: user.name,
@@ -250,8 +331,13 @@ export function recentActivity(orgId: string, limit = 8, actorId?: string) {
     .where(
       and(eq(activity.organizationId, orgId), actorId ? eq(activity.actorId, actorId) : undefined)
     )
-    .orderBy(desc(activity.createdAt))
+    .orderBy(desc(activity.createdAt), desc(activity.id))
     .limit(limit)
+    .offset(offset)
+}
+
+export function activityCount(orgId: string) {
+  return db.$count(activity, eq(activity.organizationId, orgId))
 }
 
 // Activity the client hasn't been told about yet, with the task's current state.

@@ -33,6 +33,16 @@ export const PROJECT_HEALTH: Record<ProjectHealth, { label: string; className: s
   done: { label: "All done", className: "text-muted-foreground", dot: "bg-muted-foreground" },
 }
 
+// Accent tones for icon tiles and dots on Home. `tile` tints an icon's square (a hover step deeper), `dot` is the solid swatch.
+export const ACCENT = {
+  sky: { tile: "bg-sky-500/10 text-sky-600 group-hover:bg-sky-500/20 dark:text-sky-400", dot: "bg-sky-500" },
+  emerald: { tile: "bg-emerald-500/10 text-emerald-600 group-hover:bg-emerald-500/20 dark:text-emerald-400", dot: "bg-emerald-500" },
+  amber: { tile: "bg-amber-500/10 text-amber-600 group-hover:bg-amber-500/20 dark:text-amber-400", dot: "bg-amber-500" },
+  rose: { tile: "bg-rose-500/10 text-rose-600 group-hover:bg-rose-500/20 dark:text-rose-400", dot: "bg-rose-500" },
+  violet: { tile: "bg-violet-500/10 text-violet-600 group-hover:bg-violet-500/20 dark:text-violet-400", dot: "bg-violet-500" },
+} as const
+export type Accent = keyof typeof ACCENT
+
 export const RELEASE_STAGE: Record<ReleaseStage, string> = {
   in_production: "In production",
   on_staging: "On staging",

@@ -106,6 +106,65 @@ export const task = pgTable(
   ]
 )
 
+// Every person a task is assigned to. `task.assignee_id` stays as the lead (the first one) so the 3D workspace, feedback
+// and the CEO page keep one owner per task; setTaskAssignees() in app/actions.ts writes both together.
+export const taskAssignee = pgTable(
+  "task_assignee",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.taskId, t.userId] }), index("task_assignee_user_idx").on(t.userId)]
+)
+
+// When someone last opened a task. A task is unseen for them when it changed after this (or they never opened it).
+export const taskView = pgTable(
+  "task_view",
+  {
+    taskId: text("task_id")
+      .notNull()
+      .references(() => task.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.taskId, t.userId] })]
+)
+
+// Named URLs on a project: where it runs (staging, production, landing page) and where it was designed (Figma …).
+export const PROJECT_LINK_KINDS = ["site", "design"] as const
+export type ProjectLinkKind = (typeof PROJECT_LINK_KINDS)[number]
+export const projectLink = pgTable(
+  "project_link",
+  {
+    id: id(),
+    organizationId: orgId(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: PROJECT_LINK_KINDS }).notNull(),
+    title: text("title").notNull(),
+    url: text("url").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("project_link_project_idx").on(t.projectId)]
+)
+
+// Sign-in times for the Home page: `lastAt` is this visit's sign-in, `previousAt` the one before it.
+export const userLogin = pgTable("user_login", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  lastAt: timestamp("last_at", { withTimezone: true }).defaultNow().notNull(),
+  previousAt: timestamp("previous_at", { withTimezone: true }),
+})
+
 export const comment = pgTable(
   "comment",
   {
@@ -344,9 +403,15 @@ export const taskRelations = relations(task, ({ one, many }) => ({
   project: one(project, { fields: [task.projectId], references: [project.id] }),
   release: one(release, { fields: [task.releaseId], references: [release.id] }),
   assignee: one(user, { fields: [task.assigneeId], references: [user.id] }),
+  assignees: many(taskAssignee),
   parent: one(task, { fields: [task.parentId], references: [task.id], relationName: "subtasks" }),
   subtasks: many(task, { relationName: "subtasks" }),
   comments: many(comment),
+}))
+
+export const taskAssigneeRelations = relations(taskAssignee, ({ one }) => ({
+  task: one(task, { fields: [taskAssignee.taskId], references: [task.id] }),
+  user: one(user, { fields: [taskAssignee.userId], references: [user.id] }),
 }))
 
 export const commentRelations = relations(comment, ({ one }) => ({

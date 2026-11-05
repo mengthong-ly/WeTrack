@@ -13,6 +13,7 @@ import { Input } from "@/components/coss/input"
 import { Textarea } from "@/components/coss/textarea"
 import { FormActions, FormCard, FormError, FormField, FormPage } from "@/components/form-page"
 import { ColorSwatches } from "@/components/new-project"
+import { type LinkDraft, ProjectLinksField } from "@/components/project-links-field"
 import { imageForm, shrink } from "@/lib/image"
 import { PROJECT_COLORS } from "@/lib/labels"
 import { projectHref } from "@/lib/routes"
@@ -26,12 +27,13 @@ const pill =
 
 // New project (/create) and Edit project (/projects/<id>/edit): the same form page. The photo is the project's logo,
 // shrunk to 512px in the browser and shown at once; on create nothing is stored until Create, on edit it is saved with the rest.
-export function ProjectForm({ project }: { project?: Initial }) {
+export function ProjectForm({ project, links: savedLinks = [] }: { project?: Initial; links?: LinkDraft[] }) {
   const router = useRouter()
   const [name, setName] = useState(project?.name ?? "")
   const [color, setColor] = useState(project?.color ?? PROJECT_COLORS[6])
   const [photo, setPhoto] = useState<Photo>(project?.logo ? { url: project.logo } : null)
   const [photoChanged, setPhotoChanged] = useState(false)
+  const [links, setLinks] = useState(savedLinks)
   const [error, setError] = useState<string>()
   const [pending, start] = useTransition()
 
@@ -44,18 +46,20 @@ export function ProjectForm({ project }: { project?: Initial }) {
   }
 
   function submit(form: FormData) {
+    const kept = links.filter((l) => l.title.trim() || l.url.trim())
     const fields = { name, description: String(form.get("description") ?? ""), color }
     start(async () => {
       if (!project) {
         const data = new FormData()
         for (const [k, v] of Object.entries(fields)) data.set(k, v)
+        data.set("links", JSON.stringify(kept))
         if (photo?.blob) data.set("logo", photo.blob, `logo.${photo.blob.type.split("/")[1]}`)
         const res = await createProject(data)
         if (res.error) return setError(res.error)
         toast.success("Project created")
         return router.push(projectHref(res.id!))
       }
-      const res = await updateProject(project.id, fields)
+      const res = await updateProject(project.id, { ...fields, links: kept })
       if (res.error) return setError(res.error)
       if (photoChanged) {
         const logo = await setProjectLogo(project.id, photo?.blob ? imageForm("logo", photo.blob) : new FormData())
@@ -128,6 +132,8 @@ export function ProjectForm({ project }: { project?: Initial }) {
         <FormField label="Colour" hint="The dot that marks this project's tasks and rows.">
           <ColorSwatches value={color} onChange={setColor} />
         </FormField>
+
+        <ProjectLinksField value={links} onChange={setLinks} />
 
         <FormError>{error}</FormError>
         <FormActions>

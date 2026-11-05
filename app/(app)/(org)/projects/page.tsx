@@ -8,7 +8,7 @@ import { formatDate, HEALTH, STATUS } from "@/lib/labels"
 import { listProjects, listTasks, unreportedCounts } from "@/lib/queries"
 import { effectiveProgress, health, projectHealth, todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
-import { byDeadline } from "@/lib/task-view"
+import { assignedTo, byDeadline } from "@/lib/task-view"
 import { greeting, longDate } from "@/lib/time"
 import { attachmentSrc, cn } from "@/lib/utils"
 
@@ -21,7 +21,7 @@ export default async function ProjectsPage() {
   const today = todayISO()
   const [projects, tasks, unreported] = await Promise.all([listProjects(me.orgId), listTasks(me.orgId), unreportedCounts(me.orgId)])
   const s = summarize(
-    tasks.filter((t) => t.assigneeId === me.user.id),
+    tasks.filter((t) => assignedTo(t, me.user.id)),
     today
   )
   const facts = [
@@ -59,7 +59,7 @@ export default async function ProjectsPage() {
               progress: pt.length ? Math.round(pt.reduce((n, t) => n + effectiveProgress(t), 0) / pt.length) : 0,
               open: open.length,
               done: pt.length - open.length,
-              yours: open.filter((t) => t.assigneeId === me.user.id).length,
+              yours: open.filter((t) => assignedTo(t, me.user.id)).length,
               overdue: open.filter((t) => health(t, today) === "overdue").length,
               nextDue: next?.deadline ? formatDate(next.deadline) : null,
               nextDueOn: next?.deadline ?? null,

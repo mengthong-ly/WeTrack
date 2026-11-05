@@ -8,6 +8,7 @@ import { getProject, getTask, listMembers, listProjects, meetingItems, taskComme
 import { daysLeft, health, releaseStage, todayISO } from "@/lib/schedule"
 import type { requireMember } from "@/lib/session"
 import { placeInTree } from "@/lib/task-tree"
+import { assigneesOf } from "@/lib/task-view"
 
 type Me = Awaited<ReturnType<typeof requireMember>>
 
@@ -36,6 +37,7 @@ export async function loadTaskDetail(me: Me, id: string) {
     deadline: task.deadline,
     projectId: task.projectId,
     assigneeId: task.assigneeId,
+    assigneeIds: assigneesOf(task).map((u) => u.id),
     health: health(task, today),
     daysLeft: daysLeft(task, today),
     createdAt: task.createdAt.toISOString(),
@@ -48,7 +50,7 @@ export async function loadTaskDetail(me: Me, id: string) {
       status: s.status,
       priority: s.priority,
       deadline: s.deadline,
-      assignee: s.assignee,
+      assignees: assigneesOf(s),
       subtasks: s.subtasks.length,
     })),
     // The latest page, newest first; the panel loads earlier ones.
@@ -97,6 +99,7 @@ export async function loadNewTask(me: Me, projectId: string, searchParams: PageP
     deadline: null,
     projectId: project.id,
     assigneeId: preset.assigneeId ?? me.user.id,
+    assigneeIds: [preset.assigneeId ?? me.user.id],
     health: "no_deadline",
     daysLeft: null,
     createdAt: new Date().toISOString(),

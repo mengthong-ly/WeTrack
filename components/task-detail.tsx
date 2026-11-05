@@ -25,16 +25,17 @@ import { AnimatePresence, motion } from "motion/react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { useOptimistic, useRef, useState, useTransition } from "react"
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
-import { addComment, addSubtask, createTask, deleteTask, updateTask } from "@/app/actions"
-import { Crumbs, LoadMore, ProjectDot, StatusText, UserAvatar } from "@/components/bits"
+import { addComment, addSubtask, createTask, deleteTask, markTaskSeen, updateTask } from "@/app/actions"
+import { AvatarStack, Crumbs, LoadMore, ProjectDot, StatusText, UserAvatar } from "@/components/bits"
 import { FocusLayout, PanelToggle, SideAction, SideProp, SideSection, Tuned } from "@/components/editor-tools"
 import { ImageGallery } from "@/components/image-gallery"
 import { MeetingList } from "@/components/meeting-list"
 import { spring } from "@/components/motion-bits"
 import { openNewMeeting } from "@/components/new-meeting-dialog"
+import { AssigneePicker } from "@/components/assignee-picker"
 import { Pick } from "@/components/pick"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -49,7 +50,6 @@ import {
   type ProjectLite,
   statusOptions,
   typeOptions,
-  UNASSIGNED,
 } from "@/lib/options"
 import type { MeetingItem } from "@/lib/queries"
 import { type Captured, parseCapture } from "@/lib/quick-capture"
@@ -72,7 +72,10 @@ export type TaskDetailData = {
   startDate: string | null
   deadline: string | null
   projectId: string
+  /** The lead assignee. */
   assigneeId: string | null
+  /** Everyone it is assigned to, the lead first. */
+  assigneeIds: string[]
   health: Health
   daysLeft: number | null
   createdAt: string
@@ -95,7 +98,7 @@ export type TaskDetailData = {
     status: TaskStatus
     priority: TaskPriority
     deadline: string | null
-    assignee: { name: string; image: string | null } | null
+    assignees: { id: string; name: string; image: string | null }[]
     subtasks: number
   }[]
   /** The latest page, newest first. */
@@ -130,6 +133,10 @@ export function TaskDetail({
   draft?: { meId: string }
 }) {
   const router = useRouter()
+  // Opening a saved task marks it seen for you, so Home stops listing it.
+  useEffect(() => {
+    if (!draft) void markTaskSeen(saved.id)
+  }, [draft, saved.id])
   // In a workspace drawer, Back and Delete close the drawer (it slides out, then goes back).
   const back = useCloseRoute() ?? router.back
   const update = useSave(saved.id)
@@ -141,7 +148,7 @@ export function TaskDetail({
   const [creating, startCreate] = useTransition()
   const body = useRef<Editor>(null)
   const project = projects.find((p) => p.id === task.projectId)
-  const assignee = members.find((m) => m.id === task.assigneeId)
+  const assignees = task.assigneeIds.map((id) => members.find((m) => m.id === id)).filter((m) => !!m)
   const addRef = useRef<HTMLInputElement>(null)
 
   async function remove() {
@@ -161,7 +168,7 @@ export function TaskDetail({
     const next = parseCapture(text, { projects, members, meId: draft!.meId, today: format(new Date(), "yyyy-MM-dd") })
     const patch: Partial<TaskDetailData> = { title: text }
     if (next.projectId && next.projectId !== captured.projectId) patch.projectId = next.projectId
-    if (next.assigneeId && next.assigneeId !== captured.assigneeId) patch.assigneeId = next.assigneeId
+    if (next.assigneeId && next.assigneeId !== captured.assigneeId) { patch.assigneeId = next.assigneeId; patch.assigneeIds = [next.assigneeId] }
     if (next.priority && next.priority !== captured.priority) patch.priority = next.priority
     if (next.deadline && next.deadline !== captured.deadline) patch.deadline = next.deadline
     setLocal((t) => ({ ...t, ...patch }))
@@ -176,7 +183,8 @@ export function TaskDetail({
         title,
         description: body.current && !body.current.isEmpty ? body.current.getMarkdown() : "",
         projectId: task.projectId,
-        assigneeId: task.assigneeId,
+        assigneeId: task.assigneeIds[0] ?? null,
+        assigneeIds: task.assigneeIds,
         type: task.type,
         priority: task.priority,
         status: task.status,
@@ -302,10 +310,10 @@ export function TaskDetail({
             )}
             <StatusText status={task.status} />
             {task.priority !== "normal" && <span className={PRIORITY[task.priority].className}>{PRIORITY[task.priority].label}</span>}
-            {assignee && (
+            {assignees.length > 0 && (
               <span className="inline-flex items-center gap-1.5">
-                <UserAvatar user={assignee} className="size-5 ring-0" />
-                {assignee.name}
+                <AvatarStack users={assignees} className="-space-x-1" />
+                {assignees.map((a) => a.name).join(", ")}
               </span>
             )}
             {task.deadline && (
@@ -345,7 +353,7 @@ export function TaskDetail({
           {draft ? (
             <Subtasks
               taskId=""
-              subtasks={queued.map((title, i) => ({ id: `tmp-${i}`, title, status: "not_started", priority: "normal", deadline: null, assignee: null, subtasks: 0 }))}
+              subtasks={queued.map((title, i) => ({ id: `tmp-${i}`, title, status: "not_started", priority: "normal", deadline: null, assignees: [], subtasks: 0 }))}
               addRef={addRef}
               onAdd={(title) => setQueued((q) => [...q, title])}
             />
@@ -415,23 +423,11 @@ function TaskFields({
         />
       </SideProp>
       <SideProp icon={UsersIcon} label="Assigned">
-        <Pick
-          variant="ghost"
-          aria-label="Assignee"
-          value={task.assigneeId ?? UNASSIGNED}
-          onChange={(v) => save({ assigneeId: v === UNASSIGNED ? null : v })}
-          options={[
-            { value: UNASSIGNED, label: "Unassigned" },
-            ...members.map((m) => ({
-              value: m.id,
-              label: (
-                <span className="flex items-center gap-2">
-                  <UserAvatar user={m} className="size-5 ring-0" />
-                  {m.name}
-                </span>
-              ),
-            })),
-          ]}
+        <AssigneePicker
+          className="-ml-2.5 w-auto min-w-0 max-w-full"
+          members={members}
+          value={task.assigneeIds}
+          onChange={(assigneeIds) => save({ assigneeIds })}
         />
       </SideProp>
       <SideProp icon={CircleDashedIcon} label="Status">
@@ -640,7 +636,7 @@ function Subtasks({
     (state, action: { type: "toggle"; id: string } | { type: "add"; title: string }) => {
       if (action.type === "toggle")
         return state.map((s) => (s.id === action.id ? { ...s, status: s.status === "completed" ? ("not_started" as const) : ("completed" as const) } : s))
-      return [...state, { id: `tmp-${state.length}`, title: action.title, status: "not_started" as const, priority: "normal" as const, deadline: null, assignee: null, subtasks: 0 }]
+      return [...state, { id: `tmp-${state.length}`, title: action.title, status: "not_started" as const, priority: "normal" as const, deadline: null, assignees: [], subtasks: 0 }]
     }
   )
   // Titles added here. When the saved row (real id) replaces its optimistic "tmp-" row, it mounts in place
@@ -722,7 +718,7 @@ function Subtasks({
                   )}
                   {!isDone && s.status !== "not_started" && <StatusText status={s.status} className="text-xs max-sm:hidden" />}
                   {s.deadline && <span className="tabular max-sm:hidden">{formatDate(s.deadline)}</span>}
-                  {s.assignee && <UserAvatar user={s.assignee} className="size-6 ring-0" />}
+                  {s.assignees.length > 0 && <AvatarStack users={s.assignees} />}
                 </span>
               </motion.li>
             )

@@ -7,7 +7,7 @@ import { useOptimistic, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { updateTask } from "@/app/actions"
-import { PriorityChip, ProjectDot, UserAvatar } from "@/components/bits"
+import { AvatarStack, PriorityChip, ProjectDot } from "@/components/bits"
 import { NEW_TASK_EVENT } from "@/components/command-menu"
 import { ProgressBar } from "@/components/motion-bits"
 import { Pick } from "@/components/pick"
@@ -206,10 +206,10 @@ function Row({ task: t, onSave }: { task: BrowserTask; onSave: (p: Patch) => voi
         />
       </td>
       <td className={cell}>
-        {t.assignee ? (
+        {t.assignees.length ? (
           <span className="flex items-center gap-2">
-            <UserAvatar user={t.assignee} className="size-6 ring-0" />
-            <span className="truncate">{t.assignee.name}</span>
+            <AvatarStack users={t.assignees} />
+            {t.assignees.length === 1 && <span className="truncate">{t.assignees[0].name}</span>}
           </span>
         ) : (
           <span className="text-muted-foreground">Unassigned</span>

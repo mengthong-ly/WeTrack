@@ -25,6 +25,22 @@ export const auth = betterAuth({
   // Every page and action reads the session: a signed cookie copy saves the database lookup for
   // 5 minutes. The cost: a session revoked elsewhere keeps working until the copy expires.
   session: { cookieCache: { enabled: true, maxAge: 5 * 60 } },
+  // Home shows when you last signed in: keep this sign-in and the one before it.
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (s) => {
+          await db
+            .insert(schema.userLogin)
+            .values({ userId: s.userId })
+            .onConflictDoUpdate({
+              target: schema.userLogin.userId,
+              set: { previousAt: schema.userLogin.lastAt, lastAt: new Date() },
+            })
+        },
+      },
+    },
+  },
   plugins: [
     organization({
       // The owner alone manages people (roles, removal); admins share the join code, CEO link and

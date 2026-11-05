@@ -4,6 +4,16 @@ import { plainText } from "@/lib/markdown"
 import { effectiveProgress, health } from "@/lib/schedule"
 import type { TaskCardData } from "@/components/task-card"
 
+// Everyone a task is assigned to, the lead (task.assigneeId) first.
+export function assigneesOf(t: { assigneeId: string | null; assignees: { user: { id: string; name: string; image: string | null } }[] }) {
+  return t.assignees.map((a) => a.user).sort((a, b) => Number(b.id === t.assigneeId) - Number(a.id === t.assigneeId))
+}
+
+// Whether a task is assigned to this person, as lead or not.
+export function assignedTo(t: { assignees: { userId: string }[] }, userId: string) {
+  return t.assignees.some((a) => a.userId === userId)
+}
+
 // Server → client shape for task cards (derived fields computed once, on the server).
 export function toCard(t: TaskRow, today: string): TaskCardData {
   return {
@@ -18,6 +28,7 @@ export function toCard(t: TaskRow, today: string): TaskCardData {
     projectId: t.projectId,
     project: t.project,
     assignee: t.assignee,
+    assignees: assigneesOf(t),
     subtasks: { done: t.subtasks.filter((s) => s.status === "completed").length, total: t.subtasks.length },
   }
 }

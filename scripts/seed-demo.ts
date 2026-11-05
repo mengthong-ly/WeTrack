@@ -10,7 +10,7 @@ import { createHash } from "node:crypto"
 import { sql } from "drizzle-orm"
 
 import { db } from "../lib/db"
-import { activity, member, organization, project, shareLink, task, user } from "../lib/db/schema"
+import { activity, member, organization, project, shareLink, task, taskAssignee, user } from "../lib/db/schema"
 import type { TaskPriority, TaskStatus } from "../lib/db/enums"
 
 if (!/demo/.test(new URL(process.env.DATABASE_URL!).pathname)) throw new Error("DATABASE_URL must point at a *demo* database.")
@@ -89,6 +89,7 @@ for (const [title, proj, assigneeId, status, priority, due, progress, quiet] of 
       createdAt: ago(quiet + 10),
     })
     .returning()
+  if (assigneeId) await db.insert(taskAssignee).values({ taskId: t.id, userId: assigneeId })
   // $onUpdate stamps updatedAt on insert too, so backdate it afterwards for "gone quiet" tasks.
   await db.execute(sql`update task set updated_at = ${ago(quiet).toISOString()} where id = ${t.id}`)
   if (status === "in_progress" || status === "review") {

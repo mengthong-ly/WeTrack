@@ -1,0 +1,253 @@
+/* Portable design tokens: line-art monochrome system (extracted from WeTrack's app/globals.css).
+   Plain CSS custom properties, no framework needed. Pair with docs/design-system.md.
+   Dark: [data-theme="dark"] (manual) or system preference unless the user chose light. */
+
+:root {
+  /* ---------- Color: surfaces ---------- */
+  --color-bg-primary: #ffffff;      /* canvas / inset panel */
+  --color-bg-secondary: #ffffff;    /* cards, sheets, dialogs (separated by hairline ring) */
+  --color-bg-tertiary: #0000000a;   /* grey cards inside a sheet, hover fills, inputs' wells */
+  --color-bg-frame: #fafafa;        /* page frame, sidebar, body */
+  --color-bg-inverse: #262626;
+  --color-surface-overlay: #00000066;
+
+  /* ---------- Color: text ---------- */
+  --color-text-primary: #262626;
+  --color-text-secondary: #686868;
+  --color-text-tertiary: #6868688c; /* placeholder, disabled */
+  --color-text-inverse: #fafafa;
+  --color-text-link: #262626;       /* underlined, decoration 30% -> 100% on hover */
+
+  /* ---------- Color: borders ---------- */
+  --color-border-primary: #0000001a;   /* controls */
+  --color-border-secondary: #00000014; /* hairlines, card rings */
+  --color-border-focus: #a1a1a1;       /* ring at 50% */
+
+  /* ---------- Color: accent (monochrome: the primary action is ink) ---------- */
+  --color-accent-primary: #262626;
+  --color-accent-primary-hover: #262626cc;   /* 80% */
+  --color-accent-primary-active: #262626cc;  /* + translate-y 1px / scale .95 */
+  --color-accent-secondary: #0000000a;
+
+  /* ---------- Color: status (fill 10%, edge 25%, text = -fg) ---------- */
+  --color-status-success: oklch(0.696 0.17 162.48);
+  --color-status-success-fg: oklch(0.508 0.118 165.612);
+  --color-status-warning: oklch(0.769 0.188 70.08);
+  --color-status-warning-fg: oklch(0.555 0.163 48.998);
+  --color-status-error: oklch(0.637 0.237 25.331);
+  --color-status-error-fg: oklch(0.505 0.213 27.518);
+  --color-status-info: oklch(0.623 0.214 259.815);
+  --color-status-info-fg: oklch(0.488 0.243 264.376);
+
+  /* Meaning text (labels file): light -600, dark -400 */
+  --color-meaning-danger: #dc2626;    /* urgent, overdue, blocked, behind */
+  --color-meaning-caution: #d97706;   /* due soon, at risk */
+  --color-meaning-active: #ea580c;    /* in progress */
+  --color-meaning-review: #7c3aed;    /* review / test */
+  --color-meaning-good: #059669;      /* completed, on track */
+  --color-meaning-normal: #2563eb;    /* normal priority */
+  --color-meaning-idle: var(--color-text-secondary); /* not started, no rush, done */
+
+  /* ---------- Spacing (4px base, as used) ---------- */
+  --space-0: 0;
+  --space-1: 0.125rem;  /* 2  */
+  --space-2: 0.25rem;   /* 4  */
+  --space-3: 0.375rem;  /* 6  icon <-> label */
+  --space-4: 0.5rem;    /* 8  */
+  --space-5: 0.625rem;  /* 10 stacked cards */
+  --space-6: 0.75rem;   /* 12 */
+  --space-7: 1rem;      /* 16 grid gutter */
+  --space-8: 1.25rem;   /* 20 tile padding */
+  --space-9: 1.5rem;    /* 24 section gap, page py (mobile) */
+  --space-10: 2rem;     /* 32 section gap, page px/py (sm+) */
+  --space-11: 2.5rem;   /* 40 */
+  --space-12: 3.5rem;   /* 56 header height */
+
+  /* Surface padding */
+  --pad-page: 1.5rem 1rem;          /* sm+: 2rem 2rem */
+  --pad-sheet-cards: 0.75rem;       /* sm+: 1rem */
+  --pad-sheet-text: 1.5rem;
+  --pad-tile: 1.25rem;              /* sm+: 1.5rem */
+  --pad-card: 1rem;                 /* sm+: 1.25rem */
+  --pad-form: 1.25rem;              /* sm+: 1.5rem */
+  --pad-empty: 1.5rem 1.25rem;
+
+  /* ---------- Typography ---------- */
+  --font-family-display: "Poppins", "Google Sans", ui-sans-serif, system-ui, sans-serif; /* h1,h2, big numbers; weights 300-600 */
+  --font-family-body: "Google Sans", ui-sans-serif, system-ui, sans-serif;               /* 400/500/700 only */
+  --font-family-mono: "Geist Mono", ui-monospace, monospace;
+
+  --font-size-2xs: 0.6875rem; /* 11 kbd */
+  --font-size-xs: 0.75rem;    /* 12 meta */
+  --font-size-sm: 0.875rem;   /* 14 body, labels */
+  --font-size-base: 1rem;     /* 16 */
+  --font-size-md: 1.125rem;   /* 18 section / card title */
+  --font-size-lg: 1.25rem;    /* 20 card title sm+ */
+  --font-size-xl: 1.5rem;     /* 24 auth / drawer heading */
+  --font-size-2xl: 1.875rem;  /* 30 page title */
+  --font-size-3xl: 2.25rem;   /* 36 page title sm+, doc title */
+  --font-size-4xl: 3rem;      /* 48 doc title sm+, big number */
+  --font-size-5xl: 3.75rem;   /* 60 big number sm+ */
+
+  --font-weight-light: 300;   /* titles + numbers */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;  /* chips, labels, logo only */
+  /* no semibold / bold in this system */
+
+  --line-height-tight: 1.15;  /* display (font-light + tracking-tight) */
+  --line-height-snug: 1.375;  /* card titles */
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625; /* rich text */
+
+  --letter-spacing-tight: -0.025em; /* every font-light display size */
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.025em;   /* rarely: no ALL-CAPS labels */
+
+  /* ---------- Layout ---------- */
+  --max-width-content: 48rem;   /* reading / form 3xl */
+  --max-width-wide: 72rem;      /* page content (max-w-6xl) */
+  --max-width-page: 90rem;
+  --max-width-auth: 24rem;      /* max-w-sm */
+  --width-drawer: 32rem;
+  --width-side-panel: 18rem;
+  --width-contents: 14rem;
+  --height-header: 3.5rem;
+  --size-control: 2.75rem;      /* h-11 primary pill */
+  --size-touch-min: 2.5rem;
+
+  --border-radius-row: 0.5rem;     /* list rows, menu items */
+  --border-radius-sm: 0.525rem;
+  --border-radius-md: 0.7rem;
+  --border-radius-lg: 0.875rem;    /* ALL surfaces: panel, card, tile, sheet, dialog */
+  --border-radius-xl: 1.225rem;    /* inset panel */
+  --border-radius-full: 9999px;    /* buttons, inputs, chips, avatars */
+
+  /* ---------- Elevation: hairline ring, not drop shadow ---------- */
+  --shadow-sm: 0 0 0 1px var(--color-border-secondary), 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 0 0 1px var(--color-border-secondary), 0 4px 12px -2px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 0 0 1px var(--color-border-secondary), 0 12px 32px -8px rgb(0 0 0 / 0.16); /* floating chrome only */
+  --shadow-focus: 0 0 0 3px color-mix(in oklab, var(--color-border-focus) 50%, transparent);
+
+  /* ---------- Glass (floating chrome) ---------- */
+  --glass-bg: color-mix(in oklab, var(--color-bg-secondary) 70%, transparent);
+  --glass-ring: 0 0 0 1px color-mix(in oklab, var(--color-text-primary) 5%, transparent);
+  --glass-blur: 12px;
+
+  /* ---------- Gradients (the only three) ---------- */
+  --grid-dot-dark: radial-gradient(color-mix(in oklab, var(--color-text-primary) 6%, transparent) 1px, transparent 1px); /* size 22px, dark panel only */
+  --grid-dot-empty: radial-gradient(color-mix(in oklab, var(--color-text-primary) 16%, transparent) 1px, transparent 1px); /* size 16px, mask below */
+  --grid-dot-empty-mask: radial-gradient(ellipse at center, black 40%, transparent 85%);
+
+  /* ---------- Motion ---------- */
+  --duration-instant: 50ms;
+  --duration-fast: 150ms;     /* skeleton fade-in delay, hovers */
+  --duration-normal: 350ms;   /* mode / step switch */
+  --duration-slow: 500ms;     /* Reveal entrance */
+  --duration-slower: 900ms;   /* count-up, progress ~800ms */
+
+  --easing-default: cubic-bezier(0.2, 0.8, 0.2, 1);   /* ease-snap */
+  --easing-out: cubic-bezier(0.16, 1, 0.3, 1);        /* ease-out-expo: entrances, progress, count-ups */
+  --easing-in: cubic-bezier(0.4, 0, 1, 1);
+  --easing-overshoot: cubic-bezier(0.7, -0.15, 0.25, 1.15); /* sidebar collapse */
+  /* spring (Motion): { type: "spring", stiffness: 380, damping: 32 } */
+  --reveal-rise: 12px;
+  --reveal-stagger: 60ms;
+  --press-scale: 0.95;        /* pills / icon buttons; rows 0.97, cells 0.97 */
+
+  /* ---------- Breakpoints (reference; custom properties can't drive @media) ---------- */
+  --breakpoint-sm: 640px;   /* app uses Tailwind's: phone layout below, designed for 375 */
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+[data-theme="dark"] {
+  --color-bg-primary: #0e0e0e;
+  --color-bg-secondary: #151515;
+  --color-bg-tertiary: #ffffff08;
+  --color-bg-frame: #090909;
+  --color-bg-inverse: #f5f5f5;
+  --color-surface-overlay: #000000a6;
+
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #818181;
+  --color-text-tertiary: #8181818c;
+  --color-text-inverse: #262626;
+  --color-text-link: #f5f5f5;
+
+  --color-border-primary: #ffffff1c;
+  --color-border-secondary: #ffffff14;
+  --color-border-focus: #8a8a8a;
+
+  --color-accent-primary: #f5f5f5;
+  --color-accent-primary-hover: #f5f5f5cc;
+  --color-accent-primary-active: #f5f5f5cc;
+  --color-accent-secondary: #ffffff07;
+
+  --color-status-error: #fb414a;
+  --color-status-error-fg: oklch(0.704 0.191 22.216);
+  --color-status-info-fg: oklch(0.707 0.165 254.624);
+  --color-status-success-fg: oklch(0.765 0.177 163.223);
+  --color-status-warning-fg: oklch(0.828 0.189 84.429);
+
+  --color-meaning-danger: #f87171;
+  --color-meaning-caution: #fbbf24;
+  --color-meaning-active: #fb923c;
+  --color-meaning-review: #a78bfa;
+  --color-meaning-good: #34d399;
+  --color-meaning-normal: #60a5fa;
+
+  --shadow-lg: 0 0 0 1px var(--color-border-secondary), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg-primary: #0e0e0e;
+    --color-bg-secondary: #151515;
+    --color-bg-tertiary: #ffffff08;
+    --color-bg-frame: #090909;
+    --color-bg-inverse: #f5f5f5;
+    --color-surface-overlay: #000000a6;
+
+    --color-text-primary: #f5f5f5;
+    --color-text-secondary: #818181;
+    --color-text-tertiary: #8181818c;
+    --color-text-inverse: #262626;
+    --color-text-link: #f5f5f5;
+
+    --color-border-primary: #ffffff1c;
+    --color-border-secondary: #ffffff14;
+    --color-border-focus: #8a8a8a;
+
+    --color-accent-primary: #f5f5f5;
+    --color-accent-primary-hover: #f5f5f5cc;
+    --color-accent-primary-active: #f5f5f5cc;
+    --color-accent-secondary: #ffffff07;
+
+    --color-status-error: #fb414a;
+    --color-status-error-fg: oklch(0.704 0.191 22.216);
+    --color-status-info-fg: oklch(0.707 0.165 254.624);
+    --color-status-success-fg: oklch(0.765 0.177 163.223);
+    --color-status-warning-fg: oklch(0.828 0.189 84.429);
+
+    --color-meaning-danger: #f87171;
+    --color-meaning-caution: #fbbf24;
+    --color-meaning-active: #fb923c;
+    --color-meaning-review: #a78bfa;
+    --color-meaning-good: #34d399;
+    --color-meaning-normal: #60a5fa;
+
+    --shadow-lg: 0 0 0 1px var(--color-border-secondary), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --duration-slower: 0ms;
+    --reveal-rise: 0px;
+  }
+}

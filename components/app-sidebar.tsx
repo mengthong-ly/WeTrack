@@ -1,10 +1,10 @@
 "use client"
 
-import { CheckIcon, ChevronsUpDownIcon, FolderIcon, FolderOpenIcon, PlusIcon as LucidePlusIcon } from "lucide-react"
+import { ActivityIcon, CheckIcon, ChevronsUpDownIcon, FolderIcon, FolderOpenIcon, PlusIcon as LucidePlusIcon } from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
-import { Suspense, useEffect } from "react"
+import { Fragment, Suspense, useEffect } from "react"
 import { toast } from "sonner"
 
 import { ArchiveIcon } from "@/components/animate-ui/icons/archive"
@@ -52,13 +52,31 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ classN
 export type SwitcherProject = { id: string; name: string; color: string; logo: string | null }
 
 // Project selection mode: before any task work, pick a project or start one.
-const ORG_NAV: NavItem[] = [
-  { href: "/projects", label: "Projects", icon: BlocksIcon },
-  { href: "/workspace", label: "Workspace", icon: LayersIcon },
-  { href: "/meetings", label: "Meetings", icon: CalendarDaysIcon },
-  { href: "/team", label: "Team", icon: UsersIcon },
-  { href: "/archive", label: "Archive", icon: ArchiveIcon },
+const ORG_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/", label: "Home", icon: LayoutDashboardIcon, exact: true },
+      { href: "/activity", label: "Activity", icon: ActivityIcon },
+    ],
+  },
+  {
+    label: "Work",
+    items: [
+      { href: "/projects", label: "Projects", icon: BlocksIcon },
+      { href: "/workspace", label: "Workspace", icon: LayersIcon },
+      { href: "/meetings", label: "Meetings", icon: CalendarDaysIcon },
+    ],
+  },
+  {
+    label: "Manage",
+    items: [
+      { href: "/team", label: "Team", icon: UsersIcon },
+      { href: "/archive", label: "Archive", icon: ArchiveIcon },
+    ],
+  },
 ]
+const ORG_NAV = ORG_GROUPS.flatMap((g) => g.items)
 
 // Task management mode: the project's own sections.
 const projectNav = (id: string): NavItem[] => [
@@ -115,7 +133,12 @@ export function OrgSidebar({ orgName, account }: { orgName?: React.ReactNode; ac
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>
-          <NavGroup label="Navigate" items={ORG_NAV} />
+          {ORG_GROUPS.map((g, i) => (
+            <Fragment key={g.label}>
+              {i > 0 && <Separator className="mx-auto w-[calc(100%-1rem)]" />}
+              <NavGroup label={g.label} items={g.items} />
+            </Fragment>
+          ))}
         </SidebarContent>
         <SidebarFooter>{account}</SidebarFooter>
       </ModeSwitch>

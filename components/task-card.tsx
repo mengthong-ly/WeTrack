@@ -11,7 +11,7 @@ import {
   PriorityChip,
   ProjectDot,
   StatusText,
-  UserAvatar,
+  AvatarStack,
 } from "@/components/bits"
 import { ProgressBar, spring } from "@/components/motion-bits"
 import type { TaskPriority, TaskStatus } from "@/lib/db/enums"
@@ -32,6 +32,8 @@ export type TaskCardData = {
   projectId: string
   project: { name: string; color: string }
   assignee: { name: string; image: string | null } | null
+  /** Everyone it's assigned to, the lead first. */
+  assignees: { id: string; name: string; image: string | null }[]
   subtasks: { done: number; total: number }
 }
 
@@ -131,7 +133,7 @@ export function TaskCard({
           <ProjectDot color={task.project.color} />
           {task.project.name}
         </span>
-        <UserAvatar user={task.assignee} className="ml-auto" />
+        <AvatarStack users={task.assignees} className="ml-auto" />
       </div>
 
       <div className="mt-3 flex items-start gap-3">

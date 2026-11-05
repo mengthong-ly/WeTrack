@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ls; ls *)",
       "Read(//Users/lymengthong/**)",
-      "ClaudeInChromeDomain(coss.com)"
+      "ClaudeInChromeDomain(coss.com)",
+      "ClaudeInChromeDomain(localhost:3100)"
     ]
   }
 }

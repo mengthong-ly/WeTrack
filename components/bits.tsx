@@ -145,3 +145,20 @@ export function LoadMore({
     </div>
   )
 }
+
+// Overlapping avatars for everyone a task goes to; the rest collapse into "+n".
+export function AvatarStack({ users, max = 3, className }: { users: { name: string; image?: string | null }[]; max?: number; className?: string }) {
+  const shown = users.slice(0, max)
+  return (
+    <span className={cn("flex items-center -space-x-1.5", className)}>
+      {shown.map((u, i) => (
+        <UserAvatar key={i} user={u} className="size-6 ring-2 ring-card" />
+      ))}
+      {users.length > max && (
+        <span className="tabular z-10 grid size-6 place-items-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground ring-2 ring-card">
+          +{users.length - max}
+        </span>
+      )}
+    </span>
+  )
+}

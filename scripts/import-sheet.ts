@@ -4,7 +4,7 @@
 import { and, asc, eq } from "drizzle-orm"
 
 import { db } from "../lib/db"
-import { member, organization, project, release, task } from "../lib/db/schema"
+import { member, organization, project, release, task, taskAssignee } from "../lib/db/schema"
 import type { TaskPriority, TaskStatus, TaskType } from "../lib/db/enums"
 import { todayISO } from "../lib/schedule"
 
@@ -192,7 +192,7 @@ async function main() {
       }
     }
 
-    await db.insert(task).values({
+    const [row] = await db.insert(task).values({
       organizationId: org.id,
       projectId,
       releaseId,
@@ -207,7 +207,8 @@ async function main() {
       startDate: r.startDate,
       deadline: r.deadline,
       completedAt: r.status === "completed" ? new Date(`${r.released ?? r.startDate ?? today}T12:00:00`) : null,
-    })
+    }).returning({ id: task.id })
+    if (owner?.userId) await db.insert(taskAssignee).values({ taskId: row.id, userId: owner.userId })
     added++
   }
 

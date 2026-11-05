@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 
 import { CountUp, Reveal } from "@/components/motion-bits"
+import { ACCENT, type Accent } from "@/lib/labels"
 import { cn } from "@/lib/utils"
 
 export function StatTile({
@@ -9,6 +10,7 @@ export function StatTile({
   value,
   meta,
   metaClassName,
+  accent,
   index,
 }: {
   icon: LucideIcon
@@ -16,12 +18,14 @@ export function StatTile({
   value: number
   meta?: React.ReactNode
   metaClassName?: string
+  /** Tints the icon tile. */
+  accent?: Accent
   index: number
 }) {
   return (
     <Reveal index={index} className="flex flex-col rounded-tile bg-card/60 p-5 ring-1 ring-foreground/[0.03] backdrop-blur sm:p-6">
       <div className="flex items-start justify-between gap-2">
-        <span className="grid size-11 place-items-center rounded-full bg-card shadow-sm">
+        <span className={cn("grid size-11 place-items-center rounded-full", accent ? ACCENT[accent].tile : "bg-card shadow-sm")}>
           <Icon className="size-5" />
         </span>
         {meta && <span className={cn("text-right text-sm text-muted-foreground", metaClassName)}>{meta}</span>}

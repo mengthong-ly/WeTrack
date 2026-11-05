@@ -4,15 +4,16 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { HealthBadge } from "@/components/bits"
+import { ProjectLinks } from "@/components/project-links"
 import { CountUp, ProgressBar, Reveal } from "@/components/motion-bits"
 import { TaskList } from "@/components/task-card"
 import { summarize } from "@/lib/dashboard"
 import { formatDate, HEALTH, STATUS } from "@/lib/labels"
-import { getProject, listTasks, unreportedCounts } from "@/lib/queries"
+import { getProject, listProjectLinks, listTasks, unreportedCounts } from "@/lib/queries"
 import { tasksHref, updatesHref } from "@/lib/routes"
 import { effectiveProgress, projectHealth, todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
-import { toCard } from "@/lib/task-view"
+import { assignedTo, toCard } from "@/lib/task-view"
 import { cn } from "@/lib/utils"
 
 export async function generateMetadata({ params }: PageProps<"/projects/[projectId]">): Promise<Metadata> {
@@ -25,10 +26,15 @@ export default async function ProjectOverview({ params }: PageProps<"/projects/[
   const me = await requireMember()
   const today = todayISO()
   const { projectId } = await params
-  const [project, all, unreported] = await Promise.all([getProject(me.orgId, projectId), listTasks(me.orgId), unreportedCounts(me.orgId)])
+  const [project, all, unreported, links] = await Promise.all([
+    getProject(me.orgId, projectId),
+    listTasks(me.orgId),
+    unreportedCounts(me.orgId),
+    listProjectLinks(me.orgId, projectId),
+  ])
   if (!project) notFound()
   const tasks = all.filter((t) => t.projectId === projectId)
-  const mine = tasks.filter((t) => t.assigneeId === me.user.id)
+  const mine = tasks.filter((t) => assignedTo(t, me.user.id))
 
   const s = summarize(mine, today)
   const p = summarize(tasks, today)
@@ -84,6 +90,7 @@ export default async function ProjectOverview({ params }: PageProps<"/projects/[
           )}
         </Reveal>
 
+        <div className="flex flex-col gap-6">
         {/* How the whole project is doing, everyone's work. */}
         <Reveal index={2} className="flex flex-col gap-3 rounded-sheet bg-card p-6 shadow-sm">
           <div className="flex items-center justify-between">
@@ -109,6 +116,8 @@ export default async function ProjectOverview({ params }: PageProps<"/projects/[
             <span className="ml-auto text-muted-foreground">{toTell ? `${toTell} to tell` : "Up to date"}</span>
           </Link>
         </Reveal>
+        <ProjectLinks projectId={projectId} links={links} />
+        </div>
       </div>
     </div>
   )

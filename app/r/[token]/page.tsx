@@ -33,7 +33,7 @@ import {
 } from "@/lib/queries"
 import { doneThisWeek, health, todayISO } from "@/lib/schedule"
 import { resolveShareLink } from "@/lib/share"
-import { toCard } from "@/lib/task-view"
+import { assignedTo, toCard } from "@/lib/task-view"
 import { ago, longDate } from "@/lib/time"
 
 // The link itself is the credential: keep it out of search engines and Referer headers.
@@ -61,7 +61,7 @@ export default async function SharedDashboard({
   ])
   const person = members.find((m) => m.id === sp.person)
   const tasks = person
-    ? allTasks.filter((t) => t.assigneeId === person.id)
+    ? allTasks.filter((t) => assignedTo(t, person.id))
     : allTasks
   const activity = await recentActivity(link.orgId, 10, person?.id)
 
@@ -72,7 +72,7 @@ export default async function SharedDashboard({
     ...people.map((m) => ({
       key: m.id,
       who: m as { name: string; image: string | null } | null,
-      tasks: s.focus.filter((t) => t.assigneeId === m.id),
+      tasks: s.focus.filter((t) => assignedTo(t, m.id)),
     })),
     ...(person
       ? []
@@ -80,7 +80,7 @@ export default async function SharedDashboard({
           {
             key: "none",
             who: null,
-            tasks: s.focus.filter((t) => !t.assigneeId),
+            tasks: s.focus.filter((t) => !t.assignees.length),
           },
         ]),
   ].filter((g) => g.tasks.length > 0)

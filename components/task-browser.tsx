@@ -164,7 +164,7 @@ export function TaskBrowser({
 
       {view === "table" || rows.length === 0 ? (
         <DataFrame id={FRAME} title={FRAME_TITLE[status]} total={total} pending={pending} footer={total > 0 && pagination}>
-          {rows.length ? <TaskTable tasks={rows} sort={params} /> : empty}
+          {rows.length ? <TaskTable tasks={rows} members={members} sort={params} /> : empty}
         </DataFrame>
       ) : (
         // The other views show the same page of rows their own way, with the same pagination under them.
