@@ -7,7 +7,7 @@ description: Read and update the user's WeTrack workspace through its agent API.
 
 ## Setup
 
-Every call goes through `.claude/skills/wetrack/wt.sh METHOD /api/agent/... ['<json body>']`, run by that path from the repo root. It reads `WETRACK_URL` and `WETRACK_API_KEY` from the environment, sends the key only to `$WETRACK_URL/api/agent/*`, and prints the body followed by `HTTP <status>`. The key acts as its owner: same workspace, same permissions.
+Every call goes through `.claude/skills/wetrack/wt.sh METHOD /api/agent/... ['<json body>']`, run by that path from the repo root. It reads `WETRACK_URL` and `WETRACK_API_KEY` from the environment, sends the key only to `$WETRACK_URL/api/agent/*`, and prints the body followed by `HTTP <status>`. A body must be a JSON object. The key acts as its owner: same workspace, same permissions.
 
 Never read, echo, print, log or write the key or `WETRACK_URL`, and never put the key on a command line. The first `wt.sh` call is the setup check: if it prints `missing <NAME>`, tell the user to create a key on the Team page of WeTrack, export both variables, and stop.
 

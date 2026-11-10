@@ -12,9 +12,10 @@ method=$1 path=$2 body=${3-}
 case $method in GET | POST | PATCH) ;; *) echo "refused: method must be GET, POST or PATCH" >&2; exit 2 ;; esac
 case $path in /api/agent/*) ;; *) echo "refused: path must start with /api/agent/" >&2; exit 2 ;; esac
 case $path in *..* | *[[:space:]]*) echo "refused: bad path" >&2; exit 2 ;; esac
+case $body in '' | '{'*) ;; *) echo "refused: body must be a JSON object" >&2; exit 2 ;; esac
 
-args=(-sS -X "$method" -H @- -w '\nHTTP %{http_code}\n')
-[ -z "$body" ] || args+=(-H "Content-Type: application/json" -d "$body")
+args=(-sSg -X "$method" -H @- -w '\nHTTP %{http_code}\n')
+[ -z "$body" ] || args+=(-H "Content-Type: application/json" --data-raw "$body")
 
 # The header goes in on stdin, so the key never appears in a process list or error text.
 printf 'Authorization: Bearer %s\n' "$WETRACK_API_KEY" | curl "${args[@]}" "${WETRACK_URL%/}$path"
