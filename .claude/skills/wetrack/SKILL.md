@@ -38,7 +38,7 @@ Every call goes through `.claude/skills/wetrack/wt.sh METHOD /api/agent/... ['<j
 
 Never read, echo, print, log or write the key or `WETRACK_URL`, and never put the key on a command line. The first `wt.sh` call is the setup check: if it prints `missing <NAME>`, tell the user to create a key on the Team page of WeTrack, export both variables, and stop.
 
-The permission rule `Bash(.claude/skills/wetrack/wt.sh:*)` lets these calls run without a prompt each.
+To run these calls without a prompt each, the user adds the permission rule `Bash(.claude/skills/wetrack/wt.sh:*)` to their Claude Code permissions (tested in a headless `claude -p` run only, not in an interactive session).
 
 ## Endpoints (REST, for `wt.sh`)
 
@@ -67,7 +67,7 @@ Values: `status` is `not_started | in_progress | review | blocked | completed`; 
 
 ## Reading responses
 
-- Report: `totals`, `projects[]` (`health` is the display label: "Behind", "At risk", "On track" or "All done"; `progress`; `overdue`), `people[]` (workload, with `id` and `name`), `attention[]` (tasks with a `reason`), `doneThisWeek[]`, `recent[]`. `attention`, `doneThisWeek` and `recent` hold at most 10 entries, so `totals` has the true counts.
+- Report: `totals`, `projects[]` (`health` is the display label: "Behind", "At risk", "On track" or "All done"; `progress`; `overdue`), `people[]` (every member with `id` and `name`, idle ones included; the workload counts follow `project` when it is given), `attention[]` (tasks with a `reason`), `doneThisWeek[]`, `recent[]`. `attention`, `doneThisWeek` and `recent` hold at most 10 entries, so `totals` has the true counts.
 - Task list: `{ tasks, more }`, at most 50 per call; `more: true` means narrow the filters.
 - `assignees` on a task holds member names. Writes that assign people take user ids: get them from `report.people[].id`, send `assigneeIds` (everyone, first is the lead) or `assigneeId` (one person, or null for nobody).
 - An unknown `status`, `assignee` id or `project` id (or one outside the workspace) returns an empty list, not an error. When a list comes back unexpectedly empty, recheck the filter values before telling the user there are no tasks.
@@ -81,7 +81,7 @@ Values: `status` is `not_started | in_progress | review | blocked | completed`; 
 ## Update workflow
 
 1. Find the task with `wetrack_list_tasks` or `/api/agent/tasks?q=<words from the title>`. With more than one candidate, show the titles and projects and confirm which one with the user.
-2. Update the fields the user asked for (`wetrack_update_task` or PATCH), or post a note. Send at least one known field in every update: an empty body still bumps `updated_at` and writes an audit row.
+2. Update the fields the user asked for (`wetrack_update_task` or PATCH), or post a note. Use the exact field names: unknown keys are dropped, and an update with no known field (an empty body, or a typo such as `progres`) is rejected with "Nothing to change.".
 3. After a batch of writes, re-read each changed task and tell the user what changed (old value to new value).
 
 A note is a task comment: it notifies the assignee, the creator and everyone already in the thread. Agent writes appear in the Logs with `via: "agent"`.

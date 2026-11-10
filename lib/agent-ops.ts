@@ -78,9 +78,8 @@ export async function agentReport(me: Me, projectId?: string): Promise<AgentRepo
       progress: p.progress,
       unreportedClientChanges: unreported.get(p.id) ?? 0,
     })),
-    people: workload(members, tasks, today)
-      .filter((w) => w.open || w.doneThisWeek)
-      .map(({ member, ...w }) => ({ id: member.id, name: member.name, ...w })),
+    // Every member, so an idle teammate's id is still there to assign; only the counts follow the scope.
+    people: workload(members, tasks, today).map(({ member, ...w }) => ({ id: member.id, name: member.name, ...w })),
     attention: needsAttention(tasks, today)
       .slice(0, LIST_LIMIT)
       .map(({ task, reason }) => ({ ...compactTask(task), reason: REASON[reason] })),

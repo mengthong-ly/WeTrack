@@ -26,7 +26,7 @@ async function notAllowed() {
   await connection()
   return Response.json(
     { error: "Method not allowed. POST JSON-RPC to /api/mcp." },
-    { status: 405, headers: { Allow: "POST" } }
+    { status: 405, headers: { Allow: "POST", "Cache-Control": "private, no-store" } }
   )
 }
 export const GET = notAllowed

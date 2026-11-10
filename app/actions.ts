@@ -446,6 +446,8 @@ export async function updateTask(taskId: string, patch: z.input<typeof taskPatch
   const parsed = taskPatch.safeParse(patch)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const data = parsed.data
+  // An empty body, or only unknown keys (stripped by zod), would otherwise bump updated_at and log a change of nothing.
+  if (!Object.keys(data).length) return { error: "Nothing to change." }
   const before = await ownTask(me.orgId, taskId)
   if (!before) return { error: "Task not found." }
   if (data.projectId && !(await ownProject(me.orgId, data.projectId))) return { error: "Project not found." }

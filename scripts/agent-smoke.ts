@@ -22,11 +22,12 @@ const KEY_RE = /wt_[\w-]{43}/
 const DAY = 86_400_000
 const iso = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10)
 const s = randomBytes(4).toString("hex")
-const users = { owner: `smk-owner-${s}`, member: `smk-member-${s}`, gone: `smk-gone-${s}`, other: `smk-other-${s}` }
+const users = { owner: `smk-owner-${s}`, member: `smk-member-${s}`, gone: `smk-gone-${s}`, other: `smk-other-${s}`, idle: `smk-idle-${s}` }
 const orgs = { main: `smk-org-${s}`, other: `smk-org2-${s}` }
 
 // The response fields read below.
 type T = { id: string; title: string; project: { id: string }; assignees: string[]; reason?: string }
+type P = { id: string; name: string; open: number; active: number; blocked: number; overdue: number; dueThisWeek: number; doneThisWeek: number }
 type Body = {
   error?: string
   id: string
@@ -35,6 +36,7 @@ type Body = {
   today: string
   totals: Record<string, number>
   projects: { id: string }[]
+  people: P[]
   attention: T[]
   doneThisWeek: T[]
   tasks: T[]
@@ -92,6 +94,8 @@ async function seed() {
   await db.insert(member).values([
     { id: `m-${users.owner}`, organizationId: orgs.main, userId: users.owner, role: "owner", createdAt: now },
     { id: `m-${users.member}`, organizationId: orgs.main, userId: users.member, role: "member", createdAt: now },
+    // `idle` is in the workspace with no tasks at all.
+    { id: `m-${users.idle}`, organizationId: orgs.main, userId: users.idle, role: "member", createdAt: now },
     { id: `m-${users.other}`, organizationId: orgs.other, userId: users.other, role: "owner", createdAt: now },
   ])
   const [p1, p2, p3] = await db
@@ -200,6 +204,20 @@ async function run({ projects, tasks, keys }: Awaited<ReturnType<typeof seed>>) 
   assert.equal(foreignReport.status, 404, foreignReport.text)
   ok("report scoped to a project; foreign project 404")
 
+  // people lists every member, idle ones too; only the counts follow ?project=.
+  const zero = { open: 0, active: 0, blocked: 0, overdue: 0, dueThisWeek: 0, doneThisWeek: 0 }
+  const person = (b: Body, id: string) => b.people.find((p) => p.id === id)
+  const opsReport = await call(`/api/agent/report?project=${projects.p2.id}`, keys.owner)
+  assert.equal(opsReport.status, 200, opsReport.text.slice(0, 500))
+  for (const [name, b] of [["unscoped", rep.json], ["p1", scoped.json], ["p2", opsReport.json]] as const) {
+    assert.deepEqual(b.people.map((p) => p.id).sort(), [users.idle, users.member, users.owner].sort(), `${name}: people`)
+    assert.deepEqual(person(b, users.idle), { id: users.idle, name: "Smoke idle", ...zero }, `${name}: idle member`)
+  }
+  assert.equal(person(rep.json, users.member)?.open, 2)
+  assert.equal(person(rep.json, users.member)?.blocked, 1)
+  assert.deepEqual(person(opsReport.json, users.member), { id: users.member, name: "Smoke member", ...zero })
+  ok("report people lists every member; counts follow the project")
+
   // Task list.
   const mine = await call("/api/agent/tasks?assignee=me", keys.member)
   assert.equal(mine.status, 200, mine.text.slice(0, 500))
@@ -269,14 +287,24 @@ async function run({ projects, tasks, keys }: Awaited<ReturnType<typeof seed>>) 
     assert.equal(r.status, 400, `${JSON.stringify(patch)}: ${r.status} ${r.text}`)
     assert.ok(typeof r.json.error === "string")
   }
+  const updateLogs = () => db.$count(logEntry, and(eq(logEntry.targetId, tasks.todo.id), eq(logEntry.action, "task.update")))
+  const activities = () => db.$count(activity, eq(activity.taskId, tasks.todo.id))
+  const [logsBefore, activitiesBefore] = [await updateLogs(), await activities()]
+  for (const patch of [{}, { progres: 90 }]) {
+    const r = await call(`/api/agent/tasks/${tasks.todo.id}`, keys.owner, { method: "PATCH", body: patch })
+    assert.equal(r.status, 400, `${JSON.stringify(patch)}: ${r.status} ${r.text}`)
+    assert.deepEqual(r.json, { error: "Nothing to change." })
+  }
   const after = await db.query.task.findFirst({ where: eq(task.id, tasks.todo.id) })
   assert.deepEqual(after, before)
+  assert.equal(await updateLogs(), logsBefore)
+  assert.equal(await activities(), activitiesBefore)
   for (const body of ["x".repeat(5001), ""]) {
     const r = await call(`/api/agent/tasks/${tasks.todo.id}/notes`, keys.owner, { method: "POST", body: { body } })
     assert.equal(r.status, 400, `note of ${body.length}: ${r.status}`)
   }
   assert.equal(await db.$count(comment, eq(comment.taskId, tasks.todo.id)), 0)
-  ok("bad patches and notes are 400 and change nothing")
+  ok("bad, empty and unknown-only patches and bad notes are 400 and change nothing")
 
   const foreignPatch = await call(`/api/agent/tasks/${tasks.foreign.id}`, keys.owner, { method: "PATCH", body: { status: "completed" } })
   assert.equal(foreignPatch.status, 404, foreignPatch.text)
@@ -340,6 +368,9 @@ async function run({ projects, tasks, keys }: Awaited<ReturnType<typeof seed>>) 
   const foreignTool = await tool(keys.owner, "wetrack_update_task", { id: tasks.foreign.id, status: "completed" })
   assert.equal(foreignTool.isError, true)
   assert.deepEqual(JSON.parse(foreignTool.text), { error: "Task not found." })
+  const emptyTool = await tool(keys.owner, "wetrack_update_task", { id: tasks.late.id })
+  assert.equal(emptyTool.isError, true, emptyTool.text)
+  assert.deepEqual(JSON.parse(emptyTool.text), { error: "Nothing to change." })
   assert.deepEqual(await db.query.task.findFirst({ where: eq(task.id, tasks.late.id) }), lateBefore)
   assert.equal((await db.query.task.findFirst({ where: eq(task.id, tasks.foreign.id) }))?.status, "not_started")
   ok("MCP bad update is an isError result and changes nothing")
@@ -361,8 +392,9 @@ async function run({ projects, tasks, keys }: Awaited<ReturnType<typeof seed>>) 
     const r = await call("/api/mcp", keys.owner, { method })
     assert.equal(r.status, 405, `${method} /api/mcp: ${r.status}`)
     assert.ok(typeof r.json?.error === "string")
+    assert.equal(r.headers.get("cache-control"), "private, no-store", `${method} /api/mcp cache-control`)
   }
-  ok("GET and DELETE /api/mcp are 405")
+  ok("GET and DELETE /api/mcp are 405, no-store")
 
   // No key in anything stored.
   const stored = [

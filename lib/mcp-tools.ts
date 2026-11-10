@@ -103,7 +103,7 @@ export function mcpServer() {
     "wetrack_update_task",
     {
       description:
-        "Change some of a task's fields (status, progress, deadline, assignees, ...). Send only the fields to change; do not send an empty patch.",
+        "Change some of a task's fields (status, progress, deadline, assignees, ...). Send only the fields to change, by their exact names: a patch with no known field is rejected with \"Nothing to change.\"",
       inputSchema: taskPatch.extend({ id }),
       annotations: { idempotentHint: true },
     },
