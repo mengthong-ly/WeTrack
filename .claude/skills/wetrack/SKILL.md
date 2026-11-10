@@ -1,47 +1,49 @@
 ---
 name: wetrack
-description: Read and update the user's WeTrack workspace through its agent API. Use for "progress report", "what's overdue", "what needs attention", "update my WeTrack", "mark task done", "move task to review", "post a note on task X", or "create a task".
+description: Read and update the user's WeTrack workspace through its agent API. Use for a WeTrack "progress report", "what's overdue in WeTrack", "what needs attention", "update my WeTrack", "mark a WeTrack task done", "move a WeTrack task to review", "post a note on WeTrack task X", or "create a WeTrack task".
 ---
 
 # WeTrack
 
 ## Setup
 
-Read `WETRACK_URL` (no trailing slash) and `WETRACK_API_KEY` from the environment. If either is unset, tell the user to create a key on the Team page of WeTrack, export both, and stop. Keep the key inside the `Authorization` header: never echo, log, print or commit it, and never write it to a file.
+Every call goes through `.claude/skills/wetrack/wt.sh METHOD /api/agent/... ['<json body>']`, run by that path from the repo root. It reads `WETRACK_URL` and `WETRACK_API_KEY` from the environment, sends the key only to `$WETRACK_URL/api/agent/*`, and prints the body followed by `HTTP <status>`. The key acts as its owner: same workspace, same permissions.
 
-Every call is `curl -sS -H "Authorization: Bearer $WETRACK_API_KEY"` plus the URL. Writes add `-H "Content-Type: application/json" -d '<body>'`. The key acts as its owner: same workspace, same permissions.
+Never read, echo, print, log or write the key or `WETRACK_URL`, and never put the key on a command line. The first `wt.sh` call is the setup check: if it prints `missing <NAME>`, tell the user to create a key on the Team page of WeTrack, export both variables, and stop.
+
+The permission rule `Bash(.claude/skills/wetrack/wt.sh:*)` lets these calls run without a prompt each.
 
 ## Endpoints
 
 ```sh
 # Report: the whole workspace, or one project with ?project=<project id>
-curl -sS -H "Authorization: Bearer $WETRACK_API_KEY" "$WETRACK_URL/api/agent/report"
+.claude/skills/wetrack/wt.sh GET /api/agent/report
 
 # Tasks: filters AND together; assignee is a user id or "me"; q is a case-insensitive title substring
-curl -sS -H "Authorization: Bearer $WETRACK_API_KEY" "$WETRACK_URL/api/agent/tasks?q=checkout&status=in_progress&project=<project id>&assignee=me"
+.claude/skills/wetrack/wt.sh GET "/api/agent/tasks?q=checkout&status=in_progress&project=<project id>&assignee=me"
 
-# Create: every key but assigneeIds is required (a missing key is a 400); unused ones take null; dates are "YYYY-MM-DD"; progress is 0-100
-curl -sS -X POST -H "Authorization: Bearer $WETRACK_API_KEY" -H "Content-Type: application/json" \
-  -d '{"title":"Fix login redirect","description":null,"projectId":"<project id>","assigneeId":null,"assigneeIds":["<user id>"],"type":"bug_fix","priority":"normal","status":"not_started","progress":0,"startDate":null,"deadline":"2026-11-20"}' \
-  "$WETRACK_URL/api/agent/tasks"                      # -> {"id":"<new task id>"}
+# Create: every key except assigneeIds and parentId is required (a missing key is a 400); unused ones take null;
+# dates are "YYYY-MM-DD"; progress is 0-100; parentId makes a sub-task in the parent's project
+.claude/skills/wetrack/wt.sh POST /api/agent/tasks '{"title":"Fix login redirect","description":null,"projectId":"<project id>","assigneeId":null,"assigneeIds":["<user id>"],"type":"bug_fix","priority":"normal","status":"not_started","progress":0,"startDate":null,"deadline":"2026-11-20"}'
+# -> {"id":"<new task id>"}
 
 # Update: send only the keys that change (same fields as create, minus parentId)
-curl -sS -X PATCH -H "Authorization: Bearer $WETRACK_API_KEY" -H "Content-Type: application/json" \
-  -d '{"status":"review","progress":90}' "$WETRACK_URL/api/agent/tasks/<task id>"   # -> {}
+.claude/skills/wetrack/wt.sh PATCH /api/agent/tasks/<task id> '{"status":"review","progress":90}'
+# -> {}
 
 # Note: a progress note, 1-5000 characters
-curl -sS -X POST -H "Authorization: Bearer $WETRACK_API_KEY" -H "Content-Type: application/json" \
-  -d '{"body":"API is merged."}' "$WETRACK_URL/api/agent/tasks/<task id>/notes"      # -> {}
+.claude/skills/wetrack/wt.sh POST /api/agent/tasks/<task id>/notes '{"body":"API is merged."}'
+# -> {}
 ```
 
 Values: `status` is `not_started | in_progress | review | blocked | completed`; `priority` is `urgent | normal | no_rush`; `type` is `development | design | bug_fix`.
 
 ## Reading responses
 
-- Report: `totals`, `projects[]` (`health` is the display label, e.g. "Off track"; `progress`; `overdue`), `people[]` (workload, with `id` and `name`), `attention[]` (tasks with a `reason`), `doneThisWeek[]`, `recent[]`. Lists hold at most 10 entries.
+- Report: `totals`, `projects[]` (`health` is the display label: "Behind", "At risk", "On track" or "All done"; `progress`; `overdue`), `people[]` (workload, with `id` and `name`), `attention[]` (tasks with a `reason`), `doneThisWeek[]`, `recent[]`. `attention`, `doneThisWeek` and `recent` hold at most 10 entries, so `totals` has the true counts.
 - Task list: `{ tasks, more }`, at most 50 per call; `more: true` means narrow the filters.
 - `assignees` on a task holds member names. Writes that assign people take user ids: get them from `report.people[].id`, send `assigneeIds` (everyone, first is the lead) or `assigneeId` (one person, or null for nobody).
-- An unknown `status` or a project id outside the workspace returns an empty list, not an error. When a list comes back unexpectedly empty, recheck the filter values before telling the user there are no tasks.
+- An unknown `status`, `assignee` id or `project` id (or one outside the workspace) returns an empty list, not an error. When a list comes back unexpectedly empty, recheck the filter values before telling the user there are no tasks.
 
 ## Report workflow
 
@@ -61,5 +63,5 @@ A note is a task comment: it notifies the assignee, the creator and everyone alr
 
 - Write only what the user asked for.
 - Ask before changing more than 3 tasks in one go.
-- A 401 means the key is expired, revoked or removed: tell the user to create a new one on the Team page.
-- 400 and 404 bodies are `{"error": "..."}` written for people: show the message as is.
+- `HTTP 401` means the key is expired, revoked or removed: tell the user to create a new one on the Team page.
+- `HTTP 400` and `HTTP 404` bodies are `{"error": "..."}` written for people: show the message as is.
