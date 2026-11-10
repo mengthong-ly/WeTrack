@@ -7,10 +7,12 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { inAgent } from "@/lib/agent"
+import { AGENT_KEY_DAYS, AGENT_KEY_LIMIT, hashAgentKey, newAgentKey } from "@/lib/agent-key"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   activity,
+  agentKey,
   clientUpdate,
   comment,
   feedback,
@@ -745,6 +747,47 @@ export async function revokeShareLink(): Promise<Result> {
     .set({ revokedAt: new Date() })
     .where(and(eq(shareLink.organizationId, me.orgId), isNull(shareLink.revokedAt)))
   await audit(me, "share_link.revoke")
+  refresh()
+  return {}
+}
+
+// Personal API keys for Claude Code and scripts. Any member manages their own; only the hash is stored, so the
+// plain key is returned once here and never again (and never logged).
+export async function createAgentKey(name: string): Promise<Result & { key?: string }> {
+  const me = await requireMember()
+  const parsed = z.string().trim().min(1).max(60).safeParse(name)
+  if (!parsed.success) return { error: "Name the key, up to 60 characters." }
+  const mine = and(eq(agentKey.organizationId, me.orgId), eq(agentKey.userId, me.user.id))
+  // ponytail: count-then-insert, two simultaneous creates could make a 6th key; lock the user's rows if that matters.
+  const live = await db.$count(agentKey, and(mine, isNull(agentKey.revokedAt), gt(agentKey.expiresAt, new Date())))
+  if (live >= AGENT_KEY_LIMIT) return { error: `You can have ${AGENT_KEY_LIMIT} live keys. Revoke one first.` }
+  const key = newAgentKey()
+  const [row] = await db
+    .insert(agentKey)
+    .values({
+      organizationId: me.orgId,
+      userId: me.user.id,
+      name: parsed.data,
+      tokenHash: hashAgentKey(key),
+      expiresAt: new Date(Date.now() + AGENT_KEY_DAYS * 86_400_000),
+    })
+    .returning({ id: agentKey.id })
+  await audit(me, "agent_key.create", { targetId: row.id, label: parsed.data })
+  refresh()
+  return { key }
+}
+
+export async function revokeAgentKey(id: string): Promise<Result> {
+  const me = await requireMember()
+  const [row] = await db
+    .update(agentKey)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(eq(agentKey.id, id), eq(agentKey.organizationId, me.orgId), eq(agentKey.userId, me.user.id), isNull(agentKey.revokedAt))
+    )
+    .returning({ name: agentKey.name })
+  if (!row) return { error: "Key not found." }
+  await audit(me, "agent_key.revoke", { targetId: id, label: row.name })
   refresh()
   return {}
 }
