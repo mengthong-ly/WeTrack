@@ -8,7 +8,10 @@ import { mcpServer } from "@/lib/mcp-tools"
 export async function POST(req: Request) {
   return asAgent(req, async () => {
     const server = mcpServer()
-    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    })
     await server.connect(transport)
     try {
       return await transport.handleRequest(req)
@@ -21,7 +24,10 @@ export async function POST(req: Request) {
 // No SSE stream and no sessions to end. connection() keeps this out of the build-time prerender.
 async function notAllowed() {
   await connection()
-  return Response.json({ error: "Method not allowed. POST JSON-RPC to /api/mcp." }, { status: 405, headers: { Allow: "POST" } })
+  return Response.json(
+    { error: "Method not allowed. POST JSON-RPC to /api/mcp." },
+    { status: 405, headers: { Allow: "POST" } }
+  )
 }
 export const GET = notAllowed
 export const DELETE = notAllowed
