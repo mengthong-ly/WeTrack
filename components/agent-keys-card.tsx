@@ -44,9 +44,14 @@ export function AgentKeysCard({ keys, limit, days }: { keys: AgentKeyRow[]; limi
       }
       setError(undefined)
       form.reset()
+      const origin = window.location.origin
       setMade({
         key: res.key,
-        snippet: `export WETRACK_URL=${window.location.origin}\nexport WETRACK_API_KEY=${res.key}`,
+        snippet: [
+          `export WETRACK_URL=${origin}`,
+          `export WETRACK_API_KEY=${res.key}`,
+          `claude mcp add --transport http wetrack ${origin}/api/mcp --header "Authorization: Bearer ${res.key}"`,
+        ].join("\n"),
       })
     })
 
