@@ -45,9 +45,10 @@ type Logged = { via?: string } | null
 let checks = 0
 const ok = (name: string) => console.log(`ok ${++checks} ${name}`)
 
-async function call(path: string, key: string | null, init: { method?: string; body?: unknown; raw?: string } = {}) {
+async function call(path: string, key: string | null, init: { method?: string; body?: unknown; raw?: string; accept?: string } = {}) {
   const headers: Record<string, string> = {}
   if (key) headers.authorization = `Bearer ${key}`
+  if (init.accept) headers.accept = init.accept
   if (init.body !== undefined || init.raw !== undefined) headers["content-type"] = "application/json"
   const res = await fetch(`${BASE}${path}`, {
     method: init.method ?? "GET",
@@ -62,6 +63,20 @@ async function call(path: string, key: string | null, init: { method?: string; b
     json = JSON.parse(text)
   } catch {}
   return { status: res.status, headers: res.headers, text, json: json as Body }
+}
+
+// One JSON-RPC request to the stateless MCP endpoint; no initialize handshake, no session id.
+let rpcId = 0
+const mcp = (key: string | null, method: string, params: object = {}) =>
+  call("/api/mcp", key, { method: "POST", body: { jsonrpc: "2.0", id: ++rpcId, method, params }, accept: "application/json, text/event-stream" })
+
+type ToolResult = { isError?: boolean; content: { type: string; text: string }[]; structuredContent?: Body }
+async function tool(key: string, name: string, args: object) {
+  const r = await mcp(key, "tools/call", { name, arguments: args })
+  assert.equal(r.status, 200, `${name}: ${r.status} ${r.text.slice(0, 300)}`)
+  const result = (r.json as unknown as { result: ToolResult }).result
+  assert.ok(result, `${name}: no result in ${r.text.slice(0, 300)}`)
+  return { isError: result.isError === true, text: result.content[0]?.text ?? "", data: result.structuredContent }
 }
 
 async function seed() {
@@ -299,6 +314,55 @@ async function run({ projects, tasks, keys }: Awaited<ReturnType<typeof seed>>) 
   assert.equal(noteLog?.actorId, users.member)
   assert.equal((noteLog?.data as Logged)?.via, "agent")
   ok("note is a comment by the key's owner, logged via agent")
+
+  // MCP: same keys, same operations, one endpoint.
+  const mcpRevoked = await mcp(keys.revoked, "tools/list")
+  assert.equal(mcpRevoked.status, 401, mcpRevoked.text)
+  assert.equal(mcpRevoked.json?.error, "Invalid or expired API key")
+  assert.equal(mcpRevoked.headers.get("location"), null)
+  ok("MCP with a revoked key is 401 JSON, no location")
+
+  const listed = await mcp(keys.owner, "tools/list")
+  assert.equal(listed.status, 200, listed.text.slice(0, 300))
+  const names = (listed.json as unknown as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name).sort()
+  assert.deepEqual(names, ["wetrack_add_note", "wetrack_create_task", "wetrack_list_tasks", "wetrack_report", "wetrack_update_task"])
+  ok("MCP tools/list has the five tools")
+
+  const mcpReport = await tool(keys.owner, "wetrack_report", {})
+  assert.equal(mcpReport.isError, false, mcpReport.text)
+  assert.equal(JSON.parse(mcpReport.text).workspace, `Smoke Studio ${s}`)
+  assert.equal(mcpReport.data?.workspace, `Smoke Studio ${s}`)
+  ok("MCP wetrack_report names the workspace")
+
+  const lateBefore = await db.query.task.findFirst({ where: eq(task.id, tasks.late.id) })
+  const badStatus = await tool(keys.owner, "wetrack_update_task", { id: tasks.late.id, status: "nope" })
+  assert.equal(badStatus.isError, true, badStatus.text)
+  const foreignTool = await tool(keys.owner, "wetrack_update_task", { id: tasks.foreign.id, status: "completed" })
+  assert.equal(foreignTool.isError, true)
+  assert.deepEqual(JSON.parse(foreignTool.text), { error: "Task not found." })
+  assert.deepEqual(await db.query.task.findFirst({ where: eq(task.id, tasks.late.id) }), lateBefore)
+  assert.equal((await db.query.task.findFirst({ where: eq(task.id, tasks.foreign.id) }))?.status, "not_started")
+  ok("MCP bad update is an isError result and changes nothing")
+
+  const mcpNote = await tool(keys.member, "wetrack_add_note", { id: tasks.stuck.id, body: "Smoke MCP note" })
+  assert.equal(mcpNote.isError, false, mcpNote.text)
+  const [mc] = await db.select().from(comment).where(eq(comment.taskId, tasks.stuck.id))
+  assert.equal(mc?.authorId, users.member)
+  assert.equal(mc?.body, "Smoke MCP note")
+  const [mcpLog] = await db
+    .select()
+    .from(logEntry)
+    .where(and(eq(logEntry.targetId, tasks.stuck.id), eq(logEntry.action, "comment.create")))
+  assert.equal(mcpLog?.actorId, users.member)
+  assert.equal((mcpLog?.data as Logged)?.via, "agent")
+  ok("MCP note is a comment by the key's owner, logged via agent")
+
+  for (const method of ["GET", "DELETE"]) {
+    const r = await call("/api/mcp", keys.owner, { method })
+    assert.equal(r.status, 405, `${method} /api/mcp: ${r.status}`)
+    assert.ok(typeof r.json?.error === "string")
+  }
+  ok("GET and DELETE /api/mcp are 405")
 
   // No key in anything stored.
   const stored = [

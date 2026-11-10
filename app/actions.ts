@@ -29,9 +29,6 @@ import {
   task,
   taskAssignee,
   taskView,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-  TASK_TYPES,
   user,
   workspaceIntegration,
 } from "@/lib/db/schema"
@@ -53,6 +50,7 @@ import { notify } from "@/lib/notify"
 import { listSubtasks } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { getSession, requireMember } from "@/lib/session"
+import { taskFields, taskPatch } from "@/lib/task-schema"
 import { toBrowserTask } from "@/lib/task-view"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { deleteImage, isImage, saveImage } from "@/lib/storage"
@@ -60,14 +58,6 @@ import { attachmentSrc } from "@/lib/utils"
 import { postSlack, postToWebhook } from "@/lib/slack"
 
 type Result = { error?: string }
-
-const isoDate = z.iso.date().nullable()
-const optionalText = z
-  .string()
-  .trim()
-  .max(5000)
-  .transform((s) => s || null)
-  .nullable()
 
 const refresh = () => revalidatePath("/", "layout")
 
@@ -396,23 +386,6 @@ export async function markTasksSeen(taskIds: string[]): Promise<void> {
   revalidatePath("/")
 }
 
-const taskFields = z.object({
-  title: z.string().trim().min(1, "Give the task a title.").max(200),
-  description: optionalText,
-  projectId: z.string().min(1, "Pick a project."),
-  /** The lead assignee alone (the 3D workspace, quick capture); `assigneeIds` is everyone, and wins when both are sent. */
-  assigneeId: z.string().nullable(),
-  assigneeIds: z.array(z.string()).max(20).optional(),
-  type: z.enum(TASK_TYPES),
-  priority: z.enum(TASK_PRIORITIES),
-  status: z.enum(TASK_STATUSES),
-  progress: z.number().int().min(0).max(100),
-  startDate: isoDate,
-  deadline: isoDate,
-  /** A sub-task: it goes in its parent's project. */
-  parentId: z.string().nullish(),
-})
-
 // Who a task goes to, from whichever of `assigneeIds` / `assigneeId` was sent (undefined: leave as is). The first is the
 // lead and also lands in task.assigneeId.
 async function resolveAssignees(orgId: string, d: { assigneeId?: string | null; assigneeIds?: string[] }): Promise<{ ids?: string[]; error?: string }> {
@@ -467,8 +440,6 @@ export async function createTask(
   refresh()
   return { id: row.id }
 }
-
-const taskPatch = taskFields.omit({ parentId: true }).partial() // a task stays where it was made
 
 export async function updateTask(taskId: string, patch: z.input<typeof taskPatch>): Promise<Result> {
   const me = await requireMember()
