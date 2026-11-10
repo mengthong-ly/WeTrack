@@ -253,6 +253,27 @@ export const shareLink = pgTable("share_link", {
   createdAt: createdAt(),
 })
 
+// Per-user API keys for agents (Claude Code). A key acts as its owner in its workspace, only on
+// the /api/agent routes (lib/agent.ts). Stored as a sha256 hash like the share link; the plain key
+// is shown once.
+export const agentKey = pgTable(
+  "agent_key",
+  {
+    id: id(),
+    organizationId: orgId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [index("agent_key_user_idx").on(t.userId)]
+)
+
 // The code teammates type on /onboarding to join. One live code per workspace: making a new one
 // replaces the row, turning it off deletes it. Unlike the share link it is stored as-is so owners
 // can read it again to pass on; it expires and only ever lets someone in as a member.

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
+import { inAgent } from "@/lib/agent"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
@@ -79,8 +80,16 @@ async function audit(
   action: string,
   rest: { targetId?: string | null; projectId?: string | null; label?: string | null; data?: Record<string, unknown> } = {}
 ) {
+  // Calls made with an API key (lib/agent.ts) are marked so the Logs can tell them from clicks.
+  const data = { ...rest.data, ...(inAgent() && { via: "agent" }) }
   try {
-    await db.insert(logEntry).values({ organizationId: actor.orgId, actorId: actor.user.id, action, ...rest })
+    await db.insert(logEntry).values({
+      organizationId: actor.orgId,
+      actorId: actor.user.id,
+      action,
+      ...rest,
+      data: Object.keys(data).length ? data : undefined,
+    })
   } catch (e) {
     console.error(`Log failed: ${action}`, e)
   }
