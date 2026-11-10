@@ -2,7 +2,7 @@
 
 import { KeyRoundIcon } from "lucide-react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { createAgentKey, revokeAgentKey } from "@/app/actions"
@@ -34,6 +34,11 @@ export function AgentKeysCard({ keys, limit, days }: { keys: AgentKeyRow[]; limi
   const [creating, startCreate] = useTransition()
   const [revoking, startRevoke] = useTransition()
   const atLimit = keys.length >= limit
+  // A new key takes focus (its input selects itself), so the 5th key's form unmounting never drops focus to <body>.
+  const keyInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (made) keyInput.current?.focus()
+  }, [made])
 
   const create = (form: HTMLFormElement) =>
     startCreate(async () => {
@@ -71,6 +76,11 @@ export function AgentKeysCard({ keys, limit, days }: { keys: AgentKeyRow[]; limi
         last {days} days.
       </p>
 
+      {/* Mounted before the key appears, so screen readers announce the change. */}
+      <p role="status" className="sr-only">
+        {made ? "Key created. Copy it now, it won't be shown again." : ""}
+      </p>
+
       <AnimatePresence initial={false}>
         {made && (
           <motion.div
@@ -83,6 +93,7 @@ export function AgentKeysCard({ keys, limit, days }: { keys: AgentKeyRow[]; limi
             <div className="flex flex-col gap-3 rounded-panel bg-muted/70 p-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Input
+                  ref={keyInput}
                   readOnly
                   value={made.key}
                   aria-label="New API key"
@@ -93,7 +104,11 @@ export function AgentKeysCard({ keys, limit, days }: { keys: AgentKeyRow[]; limi
               </div>
               <p className="px-1 text-sm">Copy it now. It won&apos;t be shown again.</p>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-                <pre className="min-w-0 flex-1 overflow-x-auto rounded-row bg-card px-4 py-3 font-mono text-xs leading-relaxed">
+                <pre
+                  tabIndex={0}
+                  aria-label="Setup commands"
+                  className="min-w-0 flex-1 overflow-x-auto rounded-row bg-card px-4 py-3 font-mono text-xs leading-relaxed outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
                   {made.snippet}
                 </pre>
                 <div className="flex gap-2">
@@ -145,7 +160,7 @@ export function AgentKeysCard({ keys, limit, days }: { keys: AgentKeyRow[]; limi
       )}
 
       {keys.length ? (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="relative flex flex-col gap-1.5">
           <AnimatePresence mode="popLayout" initial={false}>
             {keys.map((k) => (
               <motion.li
