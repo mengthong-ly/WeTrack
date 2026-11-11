@@ -6,10 +6,13 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
+import { inAgent } from "@/lib/agent"
+import { AGENT_KEY_DAYS, AGENT_KEY_LIMIT, hashAgentKey, newAgentKey } from "@/lib/agent-key"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   activity,
+  agentKey,
   clientUpdate,
   comment,
   feedback,
@@ -26,9 +29,6 @@ import {
   task,
   taskAssignee,
   taskView,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-  TASK_TYPES,
   user,
   workspaceIntegration,
 } from "@/lib/db/schema"
@@ -50,6 +50,7 @@ import { notify } from "@/lib/notify"
 import { listSubtasks } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { getSession, requireMember } from "@/lib/session"
+import { taskFields, taskPatch } from "@/lib/task-schema"
 import { toBrowserTask } from "@/lib/task-view"
 import { hashShareToken, newShareToken } from "@/lib/share"
 import { deleteImage, isImage, saveImage } from "@/lib/storage"
@@ -57,14 +58,6 @@ import { attachmentSrc } from "@/lib/utils"
 import { postSlack, postToWebhook } from "@/lib/slack"
 
 type Result = { error?: string }
-
-const isoDate = z.iso.date().nullable()
-const optionalText = z
-  .string()
-  .trim()
-  .max(5000)
-  .transform((s) => s || null)
-  .nullable()
 
 const refresh = () => revalidatePath("/", "layout")
 
@@ -79,8 +72,16 @@ async function audit(
   action: string,
   rest: { targetId?: string | null; projectId?: string | null; label?: string | null; data?: Record<string, unknown> } = {}
 ) {
+  // Calls made with an API key (lib/agent.ts) are marked so the Logs can tell them from clicks.
+  const data = { ...rest.data, ...(inAgent() && { via: "agent" }) }
   try {
-    await db.insert(logEntry).values({ organizationId: actor.orgId, actorId: actor.user.id, action, ...rest })
+    await db.insert(logEntry).values({
+      organizationId: actor.orgId,
+      actorId: actor.user.id,
+      action,
+      ...rest,
+      data: Object.keys(data).length ? data : undefined,
+    })
   } catch (e) {
     console.error(`Log failed: ${action}`, e)
   }
@@ -385,23 +386,6 @@ export async function markTasksSeen(taskIds: string[]): Promise<void> {
   revalidatePath("/")
 }
 
-const taskFields = z.object({
-  title: z.string().trim().min(1, "Give the task a title.").max(200),
-  description: optionalText,
-  projectId: z.string().min(1, "Pick a project."),
-  /** The lead assignee alone (the 3D workspace, quick capture); `assigneeIds` is everyone, and wins when both are sent. */
-  assigneeId: z.string().nullable(),
-  assigneeIds: z.array(z.string()).max(20).optional(),
-  type: z.enum(TASK_TYPES),
-  priority: z.enum(TASK_PRIORITIES),
-  status: z.enum(TASK_STATUSES),
-  progress: z.number().int().min(0).max(100),
-  startDate: isoDate,
-  deadline: isoDate,
-  /** A sub-task: it goes in its parent's project. */
-  parentId: z.string().nullish(),
-})
-
 // Who a task goes to, from whichever of `assigneeIds` / `assigneeId` was sent (undefined: leave as is). The first is the
 // lead and also lands in task.assigneeId.
 async function resolveAssignees(orgId: string, d: { assigneeId?: string | null; assigneeIds?: string[] }): Promise<{ ids?: string[]; error?: string }> {
@@ -457,13 +441,13 @@ export async function createTask(
   return { id: row.id }
 }
 
-const taskPatch = taskFields.omit({ parentId: true }).partial() // a task stays where it was made
-
 export async function updateTask(taskId: string, patch: z.input<typeof taskPatch>): Promise<Result> {
   const me = await requireMember()
   const parsed = taskPatch.safeParse(patch)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
   const data = parsed.data
+  // An empty body, or only unknown keys (stripped by zod), would otherwise bump updated_at and log a change of nothing.
+  if (!Object.keys(data).length) return { error: "Nothing to change." }
   const before = await ownTask(me.orgId, taskId)
   if (!before) return { error: "Task not found." }
   if (data.projectId && !(await ownProject(me.orgId, data.projectId))) return { error: "Project not found." }
@@ -736,6 +720,47 @@ export async function revokeShareLink(): Promise<Result> {
     .set({ revokedAt: new Date() })
     .where(and(eq(shareLink.organizationId, me.orgId), isNull(shareLink.revokedAt)))
   await audit(me, "share_link.revoke")
+  refresh()
+  return {}
+}
+
+// Personal API keys for Claude Code and scripts. Any member manages their own; only the hash is stored, so the
+// plain key is returned once here and never again (and never logged).
+export async function createAgentKey(name: string): Promise<Result & { key?: string }> {
+  const me = await requireMember()
+  const parsed = z.string().trim().min(1).max(60).safeParse(name)
+  if (!parsed.success) return { error: "Name the key, up to 60 characters." }
+  const mine = and(eq(agentKey.organizationId, me.orgId), eq(agentKey.userId, me.user.id))
+  // ponytail: count-then-insert, two simultaneous creates could make a 6th key; lock the user's rows if that matters.
+  const live = await db.$count(agentKey, and(mine, isNull(agentKey.revokedAt), gt(agentKey.expiresAt, new Date())))
+  if (live >= AGENT_KEY_LIMIT) return { error: `You can have ${AGENT_KEY_LIMIT} live keys. Revoke one first.` }
+  const key = newAgentKey()
+  const [row] = await db
+    .insert(agentKey)
+    .values({
+      organizationId: me.orgId,
+      userId: me.user.id,
+      name: parsed.data,
+      tokenHash: hashAgentKey(key),
+      expiresAt: new Date(Date.now() + AGENT_KEY_DAYS * 86_400_000),
+    })
+    .returning({ id: agentKey.id })
+  await audit(me, "agent_key.create", { targetId: row.id, label: parsed.data })
+  refresh()
+  return { key }
+}
+
+export async function revokeAgentKey(id: string): Promise<Result> {
+  const me = await requireMember()
+  const [row] = await db
+    .update(agentKey)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(eq(agentKey.id, id), eq(agentKey.organizationId, me.orgId), eq(agentKey.userId, me.user.id), isNull(agentKey.revokedAt))
+    )
+    .returning({ name: agentKey.name })
+  if (!row) return { error: "Key not found." }
+  await audit(me, "agent_key.revoke", { targetId: id, label: row.name })
   refresh()
   return {}
 }

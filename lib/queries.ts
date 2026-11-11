@@ -9,6 +9,7 @@ import { db } from "@/lib/db"
 import { TASK_STATUSES } from "@/lib/db/enums"
 import {
   activity,
+  agentKey,
   clientUpdate,
   comment,
   feedback,
@@ -403,6 +404,15 @@ export async function clientUpdates(orgId: string, projectId: string, offset = 0
     db.$count(clientUpdate, where),
   ])
   return { rows: rows.map(({ createdAt, ...r }) => ({ ...r, when: dateTime(createdAt) })), total }
+}
+
+// Your live API keys in this workspace (not revoked, not expired), newest first. Never the hash.
+export function listAgentKeys(orgId: string, userId: string) {
+  return db
+    .select({ id: agentKey.id, name: agentKey.name, createdAt: agentKey.createdAt, lastUsedAt: agentKey.lastUsedAt, expiresAt: agentKey.expiresAt })
+    .from(agentKey)
+    .where(and(eq(agentKey.organizationId, orgId), eq(agentKey.userId, userId), isNull(agentKey.revokedAt), gt(agentKey.expiresAt, new Date())))
+    .orderBy(desc(agentKey.createdAt))
 }
 
 export function activeShareLink(orgId: string) {

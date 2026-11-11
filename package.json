@@ -19,6 +19,7 @@
     "@animate-ui/react": "2.4.1",
     "@base-ui/react": "^1.9.0",
     "@lucasmarkes/hairline": "0.5.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@tiptap/extension-image": "3.32.0",
     "@tiptap/extension-list": "3.32.0",
     "@tiptap/extensions": "^3.32.0",

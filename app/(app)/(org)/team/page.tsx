@@ -2,6 +2,7 @@ import { and, eq, gt } from "drizzle-orm"
 import type { Metadata } from "next"
 import { Suspense } from "react"
 
+import { AgentKeysCard } from "@/components/agent-keys-card"
 import { JoinCodeCard } from "@/components/join-code-card"
 import { Reveal } from "@/components/motion-bits"
 import { ShareLinkCard } from "@/components/share-link-card"
@@ -11,8 +12,9 @@ import { TeamTable } from "@/components/team-table"
 import { workload } from "@/lib/dashboard"
 import { db } from "@/lib/db"
 import { joinCode } from "@/lib/db/schema"
+import { AGENT_KEY_DAYS, AGENT_KEY_LIMIT } from "@/lib/agent-key"
 import { formatJoinCode } from "@/lib/join-code"
-import { activeShareLink, listMembers, listTasks } from "@/lib/queries"
+import { activeShareLink, listAgentKeys, listMembers, listTasks } from "@/lib/queries"
 import { todayISO } from "@/lib/schedule"
 import { requireMember } from "@/lib/session"
 import { hasSlack } from "@/lib/slack"
@@ -24,7 +26,7 @@ export const metadata: Metadata = { title: "Team" }
 export default async function TeamPage() {
   const me = await requireMember()
   const canInvite = me.role !== "member"
-  const [members, tasks, link, slack, code] = await Promise.all([
+  const [members, tasks, link, slack, code, keys] = await Promise.all([
     listMembers(me.orgId),
     listTasks(me.orgId),
     activeShareLink(me.orgId),
@@ -34,7 +36,10 @@ export default async function TeamPage() {
           where: and(eq(joinCode.organizationId, me.orgId), gt(joinCode.expiresAt, new Date())),
         })
       : undefined,
+    listAgentKeys(me.orgId, me.user.id),
   ])
+  const day = (d: Date) =>
+    d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: process.env.APP_TIMEZONE ?? "Asia/Phnom_Penh" })
 
   return (
     <div className="flex flex-col gap-6">
@@ -79,6 +84,21 @@ export default async function TeamPage() {
       )}
 
       <Reveal index={5} className="rounded-tile bg-card p-6 shadow-sm">
+        <h2 className="mb-2 text-lg">API keys</h2>
+        <AgentKeysCard
+          keys={keys.map((k) => ({
+            id: k.id,
+            name: k.name,
+            created: day(k.createdAt),
+            lastUsed: k.lastUsedAt && ago(k.lastUsedAt),
+            expires: day(k.expiresAt),
+          }))}
+          limit={AGENT_KEY_LIMIT}
+          days={AGENT_KEY_DAYS}
+        />
+      </Reveal>
+
+      <Reveal index={6} className="rounded-tile bg-card p-6 shadow-sm">
         <h2 className="mb-2 text-lg">Team</h2>
         <TeamSettings name={me.orgName} canRename={canInvite} canLeave={me.role !== "owner"} />
       </Reveal>
